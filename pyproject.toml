@@ -1,0 +1,43 @@
+[project]
+name = "med-llm-detection"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "02dumartin", email = "02dumartin@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "ipykernel>=7.2.0",
+    "jupyterlab>=4.5.5",
+    "opencv-python-headless>=4.10.0.84",
+    "pandas>=2.2.0",
+    "roboflow>=1.2.16",
+    "torch==2.9.1",
+    "torchvision==0.24.1",
+    "ultralytics>=8.3.0",
+    "sahi>=0.11.18",
+]
+
+[project.scripts]
+med-llm-detection = "med_llm_detection:main"
+
+[tool.basedpyright]
+extraPaths = [".", "src"]
+
+[build-system]
+requires = ["uv_build>=0.9.17,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+# https://github.com/astral-sh/uv/issues/14220
+[tool.uv]
+override-dependencies = ["opencv-python; python_version < '0'"]

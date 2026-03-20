@@ -1,0 +1,71 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Notebook
+notebook/
+
+# Local backups (not published to remote)
+backup/
+
+# Weights / checkpoints (training artifacts)
+weights/
+**/weights/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.h5
+
+# Training logs / runtime artifacts
+logs/
+tmux_log/
+*.log
+nohup_train.log
+
+# Common caches
+.cache/
+**/.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# IDE / editor files
+.vscode/
+.idea/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Local dataset symlink (very large)
+data/
+data
+
+# Model training outputs (plots/images) - keep CSV/results if you need
+runs/**/*.png
+runs/**/*.jpg
+runs/**/*.jpeg
+
+# log
+.log
+
+
+# Data
+data/
+**/data/
+*.json
+*.yaml
+*.yml
+*.csv
+*.txt
+*.npy
+*.npz
+*.mat
