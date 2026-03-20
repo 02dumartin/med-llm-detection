@@ -9,11 +9,11 @@ wheels/
 # Virtual environments
 .venv
 
-# Notebook
+# None - Notebook, backup, runs
 notebook/
-
-# Local backups (not published to remote)
 backup/
+runs/
+
 
 # Weights / checkpoints (training artifacts)
 weights/
@@ -49,10 +49,7 @@ nohup_train.log
 data/
 data
 
-# Model training outputs (plots/images) - keep CSV/results if you need
-runs/**/*.png
-runs/**/*.jpg
-runs/**/*.jpeg
+
 
 # log
 .log
