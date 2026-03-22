@@ -40,8 +40,8 @@ DATASETS = {
         "overlay": None,
     },
     "e-optha": {
-        "root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/E-OPTHA_yolo_4cls"),
-        "root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/E-OPTHA_yolo_1cls"),
+        "root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_4cls"),
+        "root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_1cls"),
         "val_folder": "val",
         "overlay": None,
     },

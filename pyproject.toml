@@ -24,6 +24,8 @@ med-llm-detection = "med_llm_detection:main"
 
 [tool.basedpyright]
 extraPaths = [".", "src"]
+venvPath = "."
+venv = ".venv"
 
 [build-system]
 requires = ["uv_build>=0.9.17,<0.11.0"]

@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""
-DDR 1cls YOLOv12l 학습 스크립트.
-
-- DDR 해상도 다양(35종) → imgsz로 letterbox 리사이즈하여 학습 (별도 처리 불필요).
-
-사용법:
-    python scirpts/ddr_yolo12_1cls.py --device 3
-"""
 from __future__ import annotations
 
 import argparse
@@ -19,21 +11,21 @@ import pandas as pd
 from ultralytics import YOLO
 
 PROJECT_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection")
+DATA_ROOT_BASE = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data")
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-DATA_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_yolo_1cls")
+DATA_ROOT = DATA_ROOT_BASE / "FGART_yolo_1cls"
 NAMES = ["lesion"]
 
-VAL_FOLDER = "valid"
 
-
-def write_data_yaml(out_path: Path, data_root: Path, names: list[str], val_folder: str) -> None:
+# config 저장
+def write_data_yaml(out_path: Path, data_root: Path, names: list[str]) -> None:
     out_path.write_text(
         "\n".join(
             [
                 f"path: {data_root}",
                 "train: train/images",
-                f"val: {val_folder}/images",
+                "val: val/images",
                 "test: test/images",
                 f"names: {names}",
                 "",
@@ -42,7 +34,7 @@ def write_data_yaml(out_path: Path, data_root: Path, names: list[str], val_folde
         encoding="utf-8",
     )
 
-
+# 실행
 def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
     model = YOLO(args.model)
     model.train(
@@ -56,7 +48,7 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
         name=args.name,
         seed=args.seed,
         exist_ok=args.exist_ok,
-        # optimizer (이전 버전에서 auto로 잘못 설정된 것 수정)
+        # optimizer
         optimizer=args.optimizer,
         lr0=args.lr0,
         lrf=0.01,
@@ -66,7 +58,7 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
         # 학습 효율
         amp=True,
         cache="disk",
-        patience=100,
+        patience=50,
         # 작은 객체용 증강 (MA 등)
         mosaic=0,
         close_mosaic=25,
@@ -101,12 +93,22 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
         nc = cm.shape[0] - 1
         total_gt = cm[:nc, :].sum()
         total_detected = cm[:nc, :nc].sum()
+
         detection_acc = total_detected / total_gt if total_gt > 0 else 0
 
+        base_dir = Path(args.results_dir)
         results_df = pd.DataFrame(
             {
-                "metric": ["mAP50", "mAP50-95", "detection_acc"],
-                "value": [metrics.box.map50, metrics.box.map, detection_acc],
+                "metric": [
+                    "mAP50",
+                    "mAP50-95",
+                    "detection_acc",
+                ],
+                "value": [
+                    metrics.box.map50,
+                    metrics.box.map,
+                    detection_acc,
+                ],
             }
         )
         results_df.to_csv(eval_dir / "metrics.csv", index=False)
@@ -176,21 +178,22 @@ def run_yolov12_repo(args: argparse.Namespace, data_yaml: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="DDR 1cls YOLOv12 training launcher")
+    parser = argparse.ArgumentParser(description="FGART 1cls YOLOv12 training launcher")
     parser.add_argument("--backend", choices=["ultralytics", "yolov12"], default="ultralytics")
     parser.add_argument("--repo", type=str, default=None, help="YOLOv12 repo path (backend=yolov12)")
+    parser.add_argument("--data-root", type=str, default=str(DATA_ROOT))
     parser.add_argument("--model", type=str, default=str(PROJECT_ROOT / "weights" / "yolov12l.pt"))
-    parser.add_argument("--imgsz", type=int, default=1920, help="DDR 해상도 다양 → letterbox로 이 크기로 통일")
+    parser.add_argument("--imgsz", type=int, default=1280)
     parser.add_argument("--epochs", type=int, default=300)
-    parser.add_argument("--batch", type=int, default=4)
-    parser.add_argument("--device", type=str, default="3")
+    parser.add_argument("--batch", type=int, default=16)
+    parser.add_argument("--device", type=str, default="0")
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--project", type=str, default=str(PROJECT_ROOT / "runs" / "ddr"))
-    parser.add_argument("--name", type=str, default=None, help="default: yolo12_1cls")
-    parser.add_argument("--results-dir", type=str, default=str(PROJECT_ROOT / "results" / "ddr"))
+    parser.add_argument("--project", type=str, default=str(PROJECT_ROOT / "runs" / "fgart"))
+    parser.add_argument("--name", type=str, default="yolo12_1cls")
+    parser.add_argument("--results-dir", type=str, default=str(PROJECT_ROOT / "results" / "fgart"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--lr0", type=float, default=0.0015)
-    parser.add_argument("--momentum", type=float, default=0.9)
+    parser.add_argument("--momentum", type=float, default=0.937)
     parser.add_argument("--optimizer", type=str, default="adamw")
     parser.add_argument("--exist-ok", action="store_true")
     parser.add_argument("--tensorboard", action="store_true")
@@ -201,15 +204,12 @@ def main() -> None:
     parser.add_argument("--predict-after", action="store_true")
     args = parser.parse_args()
 
-    args.data_root = str(DATA_ROOT)
-    if not DATA_ROOT.exists():
-        raise SystemExit(f"data root not found: {DATA_ROOT}")
+    data_root = Path(args.data_root)
+    if not data_root.exists():
+        raise SystemExit(f"data root not found: {data_root}")
 
-    if args.name is None:
-        args.name = "yolo12_1cls"
-
-    data_yaml = DATA_ROOT / "ddr_1cls.yaml"
-    write_data_yaml(data_yaml, DATA_ROOT, NAMES, VAL_FOLDER)
+    data_yaml = data_root / "fgart_1cls.yaml"
+    write_data_yaml(data_yaml, data_root, NAMES)
 
     args.project = str(Path(args.project).resolve())
     args.results_dir = str(Path(args.results_dir).resolve())
