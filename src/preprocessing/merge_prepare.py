@@ -8,8 +8,10 @@ FGART + DDR COCO 데이터 병합.
 - test_fgart: FGART test만
 - test_ddr: DDR test만
 
-DDR 버전: DDR_4cls/DDR_1cls 사용. DDR는 valid 사용(val→valid 매핑).
-4cls/1cls 모두 생성.
+DDR 버전:
+  - raw:  DDR_4cls / DDR_1cls -> Merge_4scls / Merge_1scls
+  - crop: DDR_crop_4cls / DDR_crop_1cls -> Merge_crop_4scls / Merge_crop_1scls
+DDR는 valid 사용(val→valid 매핑). 4cls/1cls 모두 생성.
 """
 
 from pathlib import Path
@@ -19,12 +21,16 @@ import argparse
 # 입력 COCO 루트
 FGART_4CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/FGART_4scls")
 FGART_1CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/FGART_1scls")
-DDR_4CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_4cls")
-DDR_1CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_1cls")
+DDR_RAW_4CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_4cls")
+DDR_RAW_1CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_1cls")
+DDR_CROP_4CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_4cls")
+DDR_CROP_1CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_1cls")
 
 # 출력 루트
-OUT_4CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_4scls")
-OUT_1CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_1scls")
+OUT_RAW_4CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_4scls")
+OUT_RAW_1CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_1scls")
+OUT_CROP_4CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_crop_4scls")
+OUT_CROP_1CLS = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_crop_1scls")
 
 MERGE_SPLITS = ("train", "val", "test_fgart", "test_ddr")
 CATEGORIES_4CLS = [
@@ -121,15 +127,26 @@ def link_image(src_dir: Path, file_name: str, dst_path: Path):
         return False
 
 
-def run_merge(is_4cls: bool = True, is_1cls: bool = True):
+def get_variant_roots(ddr_source: str, is_4cls: bool) -> tuple[Path, Path]:
+    if ddr_source == "crop":
+        return (
+            OUT_CROP_4CLS if is_4cls else OUT_CROP_1CLS,
+            DDR_CROP_4CLS if is_4cls else DDR_CROP_1CLS,
+        )
+    return (
+        OUT_RAW_4CLS if is_4cls else OUT_RAW_1CLS,
+        DDR_RAW_4CLS if is_4cls else DDR_RAW_1CLS,
+    )
+
+
+def run_merge(ddr_source: str, is_4cls: bool = True, is_1cls: bool = True):
     """FGART + DDR 병합 실행."""
-    out_root = OUT_4CLS if is_4cls else OUT_1CLS
+    out_root, ddr_root = get_variant_roots(ddr_source, is_4cls)
     fgart_root = FGART_4CLS if is_4cls else FGART_1CLS
-    ddr_root = DDR_4CLS if is_4cls else DDR_1CLS
     categories = CATEGORIES_4CLS if is_4cls else CATEGORIES_1CLS
 
     label = "4cls" if is_4cls else "1cls"
-    print(f"\n[Merge {label}]")
+    print(f"\n[Merge {label}] ddr_source={ddr_source}")
 
     for out_split in MERGE_SPLITS:
         is_train_or_val = out_split in ("train", "val")
@@ -195,19 +212,28 @@ def run_merge(is_4cls: bool = True, is_1cls: bool = True):
 def main():
     parser = argparse.ArgumentParser(description="FGART + DDR COCO merge")
     parser.add_argument(
+        "--ddr-source",
+        choices=["raw", "crop"],
+        default="crop",
+        help="어떤 DDR 버전을 merge에 사용할지 선택",
+    )
+    parser.add_argument(
         "--mode",
         choices=["4cls", "1cls", "both"],
         default="both",
     )
     args = parser.parse_args()
 
-    print("[Merge] FGART + DDR → Merge_4scls / Merge_1scls")
+    if args.ddr_source == "crop":
+        print("[Merge] FGART + DDR_crop → Merge_crop_4scls / Merge_crop_1scls")
+    else:
+        print("[Merge] FGART + DDR → Merge_4scls / Merge_1scls")
     print("  splits: train, val, test_fgart, test_ddr")
 
     if args.mode in ("4cls", "both"):
-        run_merge(is_4cls=True, is_1cls=False)
+        run_merge(ddr_source=args.ddr_source, is_4cls=True, is_1cls=False)
     if args.mode in ("1cls", "both"):
-        run_merge(is_4cls=False, is_1cls=True)
+        run_merge(ddr_source=args.ddr_source, is_4cls=False, is_1cls=True)
 
     print("\nDone.")
 

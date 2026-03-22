@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Merge (FGART + DDR) 1cls YOLOv12l 학습 스크립트.
+Merge (FGART + DDR_crop) 4cls YOLOv12l 학습 스크립트.
 
 사용법:
-    python scirpts/merge_yolo12_1cls.py --device 0
+    python scripts/merge_yolo12.py --device 0
 """
 from __future__ import annotations
 
@@ -18,9 +18,10 @@ from ultralytics import YOLO
 
 PROJECT_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection")
 if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))ㄴ
-DATA_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_yolo_1cls")
-NAMES = ["lesion"]
+    sys.path.insert(0, str(PROJECT_ROOT))
+# YOLO 학습은 COCO 폴더가 아니라 labels/가 포함된 YOLO 변환본을 사용해야 한다.
+DEFAULT_DATA_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection/data/Merge_crop_yolo_4cls")
+NAMES = ["MA", "HE", "EX", "SE"]
 
 VAL_FOLDER = "val"
 
@@ -62,7 +63,7 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
         cos_lr=True,
         amp=True,
         cache="disk",
-        patience=100,
+        patience=50,
         mosaic=0,
         close_mosaic=25,
         mixup=0.0,
@@ -94,17 +95,22 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
 
         cm = metrics.confusion_matrix.matrix
         nc = cm.shape[0] - 1
+        tp_correct_class = cm[:nc, :nc].diagonal().sum()
         total_gt = cm[:nc, :].sum()
         total_detected = cm[:nc, :nc].sum()
+
         detection_acc = total_detected / total_gt if total_gt > 0 else 0
+        classification_acc = tp_correct_class / total_detected if total_detected > 0 else 0
+        overall_acc = tp_correct_class / total_gt if total_gt > 0 else 0
 
         pd.DataFrame(
             {
-                "metric": ["mAP50", "mAP50-95", "detection_acc"],
-                "value": [metrics.box.map50, metrics.box.map, detection_acc],
+                "metric": ["mAP50", "mAP50-95", "detection_acc", "classification_acc", "overall_acc"],
+                "value": [metrics.box.map50, metrics.box.map, detection_acc, classification_acc, overall_acc],
             }
         ).to_csv(eval_dir / "metrics.csv", index=False)
 
+        import sys
         if str(PROJECT_ROOT) not in sys.path:
             sys.path.insert(0, str(PROJECT_ROOT))
         from src.eval.metrics_utils import compute_per_class_prf_ap
@@ -115,16 +121,17 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Merge 1cls YOLOv12l training launcher")
+    parser = argparse.ArgumentParser(description="Merge 4cls YOLOv12l training launcher")
     parser.add_argument("--model", type=str, default=str(PROJECT_ROOT / "weights" / "yolov12l.pt"))
+    parser.add_argument("--data-root", type=str, default=str(DEFAULT_DATA_ROOT))
     parser.add_argument("--imgsz", type=int, default=1920)
     parser.add_argument("--epochs", type=int, default=300)
     parser.add_argument("--batch", type=int, default=4)
     parser.add_argument("--device", type=str, default="0")
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--project", type=str, default=str(PROJECT_ROOT / "runs" / "merge"))
-    parser.add_argument("--name", type=str, default="yolo12_1cls")
-    parser.add_argument("--results-dir", type=str, default=str(PROJECT_ROOT / "results" / "merge"))
+    parser.add_argument("--project", type=str, default=str(PROJECT_ROOT / "runs" / "merge_crop"))
+    parser.add_argument("--name", type=str, default="yolo12")
+    parser.add_argument("--results-dir", type=str, default=str(PROJECT_ROOT / "results" / "merge_crop"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--lr0", type=float, default=0.0015)
     parser.add_argument("--momentum", type=float, default=0.937)
@@ -137,11 +144,12 @@ def main() -> None:
     parser.add_argument("--iou", type=float, default=0.5)
     args = parser.parse_args()
 
-    if not DATA_ROOT.exists():
-        raise SystemExit(f"data root not found: {DATA_ROOT}")
+    data_root = Path(args.data_root).resolve()
+    if not data_root.exists():
+        raise SystemExit(f"data root not found: {data_root}")
 
-    data_yaml = DATA_ROOT / "merge_1cls.yaml"
-    write_data_yaml(data_yaml, DATA_ROOT, NAMES, VAL_FOLDER)
+    data_yaml = data_root / "merge_4cls.yaml"
+    write_data_yaml(data_yaml, data_root, NAMES, VAL_FOLDER)
 
     args.project = str(Path(args.project).resolve())
     args.results_dir = str(Path(args.results_dir).resolve())

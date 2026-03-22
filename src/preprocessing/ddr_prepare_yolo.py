@@ -8,16 +8,21 @@ DDR COCO → YOLO 변환 스크립트.
   - DDR_bm 1cls COCO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_bm_1cls/{train,valid,test}/{split}.json
   - DDR_re 4cls COCO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_re_4cls/{train,val,test}/{split}.json
   - DDR_re 1cls COCO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_re_1cls/{train,val,test}/{split}.json
+  - DDR_crop 4cls COCO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_4cls/{train,valid,test}/{split}.json
+  - DDR_crop 1cls COCO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_1cls/{train,valid,test}/{split}.json
 
 입력 이미지 심볼릭 링크 (ddr_prepare.py에서 생성, FGART_4scls와 동일 구조로 /data 하위):
   - DDR_bm images: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_bm_4cls/{train,valid,test}/images
   - DDR_re images: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_re_4cls/{train,val,test}/images
+  - DDR_crop images: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_4cls/{train,valid,test}/images
 
 출력 (YOLO도 /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data 하위):
   - DDR_bm 4cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_bm_yolo_4cls/{train,valid,test}/{images,labels}
   - DDR_bm 1cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_bm_yolo_1cls/{train,valid,test}/{images,labels}
   - DDR_re 4cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_re_yolo_4cls/{train,val,test}/{images,labels}
   - DDR_re 1cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_re_yolo_1cls/{train,val,test}/{images,labels}
+  - DDR_crop 4cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_yolo_4cls/{train,valid,test}/{images,labels}
+  - DDR_crop 1cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_yolo_1cls/{train,valid,test}/{images,labels}
 
 YOLO 라벨 형식:
   class_id cx cy w_norm h_norm  (0-based class id, 0~1 정규화 좌표)
@@ -31,6 +36,8 @@ import argparse
 BM_SPLITS = ("train", "valid", "test")
 # DDR_re splits (FGART 스타일)
 RE_SPLITS = ("train", "val", "test")
+# DDR_crop splits (benchmark와 동일)
+CROP_SPLITS = ("train", "valid", "test")
 
 # COCO 입력 루트 (데이터 루트 하위, JSON 전용)
 COCO_BM_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_bm_4cls")
@@ -38,10 +45,13 @@ COCO_BM_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/
 
 COCO_RE_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_re_4cls")
 COCO_RE_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_re_1cls")
+COCO_CROP_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_4cls")
+COCO_CROP_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_1cls")
 
 # 이미지 심볼릭 링크 루트 (FGART_4scls와 동일하게 /data 하위 COCO 루트를 그대로 사용)
 IMG_BM_ROOT = COCO_BM_4CLS_ROOT
 IMG_RE_ROOT = COCO_RE_4CLS_ROOT
+IMG_CROP_ROOT = COCO_CROP_4CLS_ROOT
 
 # YOLO 출력 루트 (데이터 루트 하위)
 YOLO_BM_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_bm_yolo_4cls")
@@ -49,6 +59,8 @@ YOLO_BM_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/
 
 YOLO_RE_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_re_yolo_4cls")
 YOLO_RE_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_re_yolo_1cls")
+YOLO_CROP_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_yolo_4cls")
+YOLO_CROP_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_yolo_1cls")
 
 
 def coco_bbox_to_yolo(bbox, img_w, img_h):
@@ -154,9 +166,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--dataset",
-        choices=["bm", "re", "both"],
+        choices=["bm", "re", "crop", "both"],
         default="both",
-        help="어떤 DDR 세트를 YOLO로 변환할지 선택 (bm / re / both)",
+        help="어떤 DDR 세트를 YOLO로 변환할지 선택 (bm / re / crop / both)",
     )
     parser.add_argument(
         "--mode",
@@ -203,6 +215,26 @@ def main():
                 img_root=IMG_RE_ROOT,
                 yolo_root=YOLO_RE_1CLS_ROOT,
                 splits=RE_SPLITS,
+                is_1cls=True,
+            )
+
+    if args.dataset in ("crop", "both"):
+        if args.mode in ("4cls", "both"):
+            print("[YOLO] DDR_crop 4cls 변환 시작")
+            convert_coco_to_yolo(
+                coco_root=COCO_CROP_4CLS_ROOT,
+                img_root=IMG_CROP_ROOT,
+                yolo_root=YOLO_CROP_4CLS_ROOT,
+                splits=CROP_SPLITS,
+                is_1cls=False,
+            )
+        if args.mode in ("1cls", "both"):
+            print("[YOLO] DDR_crop 1cls 변환 시작")
+            convert_coco_to_yolo(
+                coco_root=COCO_CROP_1CLS_ROOT,
+                img_root=IMG_CROP_ROOT,
+                yolo_root=YOLO_CROP_1CLS_ROOT,
+                splits=CROP_SPLITS,
                 is_1cls=True,
             )
 

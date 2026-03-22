@@ -6,7 +6,7 @@ DDR 4cls YOLOv12l 학습 스크립트.
   별도 처리 없이 학습 가능. (이미지마다 비율 유지 + 패딩으로 동일 크기 입력)
 
 사용법:
-    python scirpts/ddr_yolo12.py --device 2
+    python scripts/ddr_yolo12.py --device 2
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from ultralytics import YOLO
 PROJECT_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection")
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-DATA_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_yolo_4cls")
+DATA_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_yolo_4cls")
 NAMES = ["MA", "HE", "EX", "SE"]
 
 VAL_FOLDER = "valid"
@@ -67,7 +67,7 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
         # 학습 효율
         amp=True,
         cache="disk",
-        patience=100,
+        patience=50,
         # 작은 객체용 증강 (MA 등)
         mosaic=0,
         close_mosaic=25,

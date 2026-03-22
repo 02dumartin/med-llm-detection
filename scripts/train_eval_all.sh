@@ -1,29 +1,26 @@
 #!/usr/bin/env bash
 # ============================================================
 # train_eval_all.sh
-# FGART, DDR, Merge 각 4cls+1cls 학습
+# DDR, Merge, Eophtha 각 4cls+1cls 학습
 #
 # 학습 구조:
-#   Round 1: DDR 4cls (GPU 5)     +  FGART 4cls (GPU 6)  ← 병렬
-#   Round 2: DDR 1cls (GPU 5)    +  FGART 1cls (GPU 6)  ← 병렬
-#   Round 3: Merge 4cls (GPU 5)   +  Merge 1cls (GPU 6)  ← 병렬
-#   Round 4: Eophtha 4cls (GPU 5) +  Eophtha 1cls (GPU 6)  ← 병렬
-#   Round 5: Eophtha 4cls (GPU 5) +  Eophtha 1cls (GPU 6) ← 병렬
+#   Round 1: DDR 4cls (GPU 5)     +  DDR 1cls (GPU 6)      ← 병렬
+#   Round 2: Merge 4cls (GPU 5,6) →  Merge 1cls (GPU 5,6)  ← 순차
+#   Round 3: Eophtha 4cls (GPU 5) +  Eophtha 1cls (GPU 6)  ← 병렬
 #
 # DDR/Merge: imgsz=1920, batch=4 (스크립트 기본값)
-# FGART: imgsz=1280, batch=8
 #
 # 현재: train만 실행 (test/eval 비활성화)
 #
 # 사용법:
-#   bash scirpts/train_eval_all.sh                  # train만
-#   bash scirpts/train_eval_all.sh --skip-train    # 학습 건너뛰기
+#   bash scripts/train_eval_all.sh                  # train만
+#   bash scripts/train_eval_all.sh --skip-train    # 학습 건너뛰기
 #   # eval 실행: 아래 2단계 각주 해제 후 --eval 옵션 추가
 # ============================================================
 
 set -euo pipefail
 
-# 프로젝트 루트 (스크립트: <repo>/scirpts/train_eval_all.sh)
+# 프로젝트 루트 (스크립트: <repo>/scripts/train_eval_all.sh)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="$BASE/logs"
@@ -39,19 +36,18 @@ echo "[tmux_log] $TMUX_LOG"
 
 VENV_PY="$BASE/.venv/bin/python"
 
-FGART_PY="$BASE/scirpts/fgart_yolo12.py"
-DDR4_PY="$BASE/scirpts/ddr_yolo12.py"
-DDR1_PY="$BASE/scirpts/ddr_yolo12_1cls.py"
-MERGE4_PY="$BASE/scirpts/merge_yolo12.py"
-MERGE1_PY="$BASE/scirpts/merge_yolo12_1cls.py"
-EOPTHA4_PY="$BASE/scirpts/eophtha_yolo12.py"
-EOPTHA1_PY="$BASE/scirpts/eophtha_yolo12_1cls.py"
+DDR4_PY="$BASE/scripts/ddr_yolo12.py"
+DDR1_PY="$BASE/scripts/ddr_yolo12_1cls.py"
+MERGE4_PY="$BASE/scripts/merge_yolo12.py"
+MERGE1_PY="$BASE/scripts/merge_yolo12_1cls.py"
+EOPTHA4_PY="$BASE/scripts/eophtha_yolo12.py"
+EOPTHA1_PY="$BASE/scripts/eophtha_yolo12_1cls.py"
 EVAL_PY="$BASE/src/eval/yolo_eval.py"
 OVERLAY_PY="$BASE/src/eval/yolo_overlay.py"
 
 # ── GPU 설정 ────────────────────────────────────────────────
-GPU_DDR=5             # DDR, Merge 학습용 단일 GPU
-GPU_FGART=6            # FGART 학습용 멀티 GPU (DDP)
+GPU_DDR=5             # DDR 4cls / Merge 4cls / Eophtha 4cls
+GPU_FGART=6           # DDR 1cls / Merge 1cls / Eophtha 1cls
 GPU_EVAL_FGART=5      # FGART 모델 eval GPU
 GPU_EVAL_DDR=6        # DDR 모델 eval GPU
 
@@ -88,20 +84,21 @@ train_bg() {
     : >"$log_file"
     PYTHONUNBUFFERED=1 "$VENV_PY" "$@" >>"$log_file" 2>&1 &
     LAST_BG_PID=$!
+    LAST_BG_LABEL="$label"
 }
 wait_pids() {
-    local label1="$1" pid1="$2" label2="$3" pid2="$4"
+    local label1="$1" pid1="$2" log1="$3" label2="$4" pid2="$5" log2="$6"
     local ok=true
     if wait "$pid1"; then
         echo "[완료] $label1" >&2
     else
-        echo "[FAIL] $label1  (로그: $LOG_DIR/${label1// /_}.log)" >&2
+        echo "[FAIL] $label1  (로그: $LOG_DIR/${log1}.log)" >&2
         ok=false
     fi
     if wait "$pid2"; then
         echo "[완료] $label2" >&2
     else
-        echo "[FAIL] $label2  (로그: $LOG_DIR/${label2// /_}.log)" >&2
+        echo "[FAIL] $label2  (로그: $LOG_DIR/${log2}.log)" >&2
         ok=false
     fi
     $ok || exit 1
@@ -141,41 +138,45 @@ run_overlay() {
 }
 
 # ════════════════════════════════════════════════════════════
-# 1단계: 학습 (2개씩 병렬, 3라운드)
+# 1단계: 학습 (DDR 병렬 → Merge 병렬 → Eophtha 병렬)
 # ════════════════════════════════════════════════════════════
 if ! $SKIP_TRAIN; then
 
-    # ── Round 1: DDR 4cls (GPU $GPU_DDR)  +  FGART 4cls (GPU $GPU_FGART) ──
-    log "학습 Round 1: DDR 4cls (GPU $GPU_DDR)  +  FGART 4cls (GPU $GPU_FGART)"
+    # ── Round 1: DDR 4cls (GPU $GPU_DDR)  +  DDR 1cls (GPU $GPU_FGART) ──
+    # log "학습 Round 1: DDR 4cls (GPU $GPU_DDR)  +  DDR 1cls (GPU $GPU_FGART)"
+    #
+    # train_bg "DDR_4cls" "$DDR4_PY" --device $GPU_DDR; PID_D4=$LAST_BG_PID
+    # train_bg "DDR_1cls" "$DDR1_PY" --device "$GPU_FGART"; PID_D1=$LAST_BG_PID
+    #
+    # wait_pids "DDR 4cls 학습" $PID_D4 "DDR_4cls" "DDR 1cls 학습" $PID_D1 "DDR_1cls"
+    log "학습 Round 1: DDR 4cls + DDR 1cls [SKIP: commented out]"
 
-    train_bg "DDR_4cls"   "$DDR4_PY"  --device $GPU_DDR;         PID_D4=$LAST_BG_PID
-    train_bg "FGART_4cls" "$FGART_PY" --variant 4cls --device "$GPU_FGART"; PID_F4=$LAST_BG_PID
+    # ── Round 2: Merge 4cls (GPU 5,6)  →  Merge 1cls (GPU 5,6) ──
+    log "학습 Round 2: Merge 4cls (GPU 5,6)  →  Merge 1cls (GPU 5,6)"
 
-    wait_pids "DDR 4cls 학습" $PID_D4 "FGART 4cls 학습" $PID_F4
+    train_bg "Merge_4cls" "$MERGE4_PY" --device "5,6"; PID_M4=$LAST_BG_PID
+    if wait "$PID_M4"; then
+        echo "[완료] Merge 4cls 학습" >&2
+    else
+        echo "[FAIL] Merge 4cls 학습  (로그: $LOG_DIR/Merge_4cls.log)" >&2
+        exit 1
+    fi
 
-    # ── Round 2: DDR 1cls (GPU $GPU_DDR)  +  FGART 1cls (GPU $GPU_FGART) ──
-    log "학습 Round 2: DDR 1cls (GPU $GPU_DDR)  +  FGART 1cls (GPU $GPU_FGART)"
+    train_bg "Merge_1cls" "$MERGE1_PY" --device "5,6"; PID_M1=$LAST_BG_PID
+    if wait "$PID_M1"; then
+        echo "[완료] Merge 1cls 학습" >&2
+    else
+        echo "[FAIL] Merge 1cls 학습  (로그: $LOG_DIR/Merge_1cls.log)" >&2
+        exit 1
+    fi
 
-    train_bg "DDR_1cls"   "$DDR1_PY"  --device $GPU_DDR;         PID_D1=$LAST_BG_PID
-    train_bg "FGART_1cls" "$FGART_PY" --variant 1cls --device "$GPU_FGART"; PID_F1=$LAST_BG_PID
-
-    wait_pids "DDR 1cls 학습" $PID_D1 "FGART 1cls 학습" $PID_F1
-
-    # ── Round 3: Merge 4cls (GPU $GPU_DDR)  +  Merge 1cls (GPU $GPU_FGART) ──
-    log "학습 Round 3: Merge 4cls (GPU $GPU_DDR)  +  Merge 1cls (GPU $GPU_FGART)"
-
-    train_bg "Merge_4cls" "$MERGE4_PY" --device $GPU_DDR;        PID_M4=$LAST_BG_PID
-    train_bg "Merge_1cls" "$MERGE1_PY" --device "$GPU_FGART";    PID_M1=$LAST_BG_PID
-
-    wait_pids "Merge 4cls 학습" $PID_M4 "Merge 1cls 학습" $PID_M1
-
-    # ── Round 4: Eophtha 4cls (GPU $GPU_DDR)  +  Eophtha 1cls (GPU $GPU_FGART) ──
-    log "학습 Round 4: Eophtha 4cls (GPU $GPU_DDR)  +  Eophtha 1cls (GPU $GPU_FGART)"
+    # ── Round 3: Eophtha 4cls (GPU $GPU_DDR)  +  Eophtha 1cls (GPU $GPU_FGART) ──
+    log "학습 Round 3: Eophtha 4cls (GPU $GPU_DDR)  +  Eophtha 1cls (GPU $GPU_FGART)"
 
     train_bg "Eophtha_4cls" "$EOPTHA4_PY" --device $GPU_DDR;     PID_E4=$LAST_BG_PID
     train_bg "Eophtha_1cls" "$EOPTHA1_PY" --device "$GPU_FGART"; PID_E1=$LAST_BG_PID
 
-    wait_pids "Eophtha 4cls 학습" $PID_E4 "Eophtha 1cls 학습" $PID_E1
+    wait_pids "Eophtha 4cls 학습" $PID_E4 "Eophtha_4cls" "Eophtha 1cls 학습" $PID_E1 "Eophtha_1cls"
 
     log "학습 전체 완료"
 fi
@@ -228,8 +229,6 @@ fi
 log "전체 완료 ✓"
 echo ""
 echo "  학습 로그:"
-echo "    $LOG_DIR/FGART_4cls.log"
-echo "    $LOG_DIR/FGART_1cls.log"
 echo "    $LOG_DIR/DDR_4cls.log"
 echo "    $LOG_DIR/DDR_1cls.log"
 echo "    $LOG_DIR/Merge_4cls.log"

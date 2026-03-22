@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
-E-ophtha 1cls YOLOv12l 학습 스크립트.
-
-- E-ophtha lesion (EX+MA 통합) 1cls
+Merge (FGART + DDR_crop) 1cls YOLOv12l 학습 스크립트.
 
 사용법:
-    python scirpts/eophtha_yolo12_1cls.py --device 5,6
+    python scripts/merge_yolo12_1cls.py --device 6
 """
 from __future__ import annotations
 
@@ -21,9 +19,10 @@ from ultralytics import YOLO
 PROJECT_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection")
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
-DATA_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/E-OPTHA_yolo_1cls")
+# YOLO 학습은 COCO 폴더가 아니라 labels/가 포함된 YOLO 변환본을 사용해야 한다.
+DEFAULT_DATA_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection/data/Merge_crop_yolo_1cls")
 NAMES = ["lesion"]
+
 VAL_FOLDER = "val"
 
 
@@ -34,7 +33,7 @@ def write_data_yaml(out_path: Path, data_root: Path, names: list[str], val_folde
                 f"path: {data_root}",
                 "train: train/images",
                 f"val: {val_folder}/images",
-                "test: test/images",
+                "test: test_fgart/images",
                 f"names: {names}",
                 "",
             ]
@@ -64,7 +63,7 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
         cos_lr=True,
         amp=True,
         cache="disk",
-        patience=100,
+        patience=50,
         mosaic=0,
         close_mosaic=25,
         mixup=0.0,
@@ -100,13 +99,12 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
         total_detected = cm[:nc, :nc].sum()
         detection_acc = total_detected / total_gt if total_gt > 0 else 0
 
-        results_df = pd.DataFrame(
+        pd.DataFrame(
             {
                 "metric": ["mAP50", "mAP50-95", "detection_acc"],
                 "value": [metrics.box.map50, metrics.box.map, detection_acc],
             }
-        )
-        results_df.to_csv(eval_dir / "metrics.csv", index=False)
+        ).to_csv(eval_dir / "metrics.csv", index=False)
 
         if str(PROJECT_ROOT) not in sys.path:
             sys.path.insert(0, str(PROJECT_ROOT))
@@ -116,56 +114,37 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
         df_prf_ap = compute_per_class_prf_ap(metrics, cm, names)
         df_prf_ap.to_csv(eval_dir / "per_class_ap.csv", index=False)
 
-        if args.predict_after:
-            test_images = Path(args.data_root) / "test" / "images"
-            pred_dir = eval_dir / "prediction"
-            pred_dir.mkdir(parents=True, exist_ok=True)
-            model.predict(
-                source=str(test_images),
-                save=True,
-                save_txt=True,
-                save_conf=True,
-                project=str(pred_dir.parent),
-                name="prediction",
-                exist_ok=True,
-                conf=args.conf,
-                iou=args.iou,
-            )
-
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="E-ophtha 1cls YOLOv12 training launcher")
+    parser = argparse.ArgumentParser(description="Merge 1cls YOLOv12l training launcher")
     parser.add_argument("--model", type=str, default=str(PROJECT_ROOT / "weights" / "yolov12l.pt"))
+    parser.add_argument("--data-root", type=str, default=str(DEFAULT_DATA_ROOT))
     parser.add_argument("--imgsz", type=int, default=1920)
     parser.add_argument("--epochs", type=int, default=300)
     parser.add_argument("--batch", type=int, default=4)
-    parser.add_argument("--device", type=str, default="5,6")
+    parser.add_argument("--device", type=str, default="0")
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--project", type=str, default=str(PROJECT_ROOT / "runs" / "eophtha"))
-    parser.add_argument("--name", type=str, default=None, help="default: yolo12_1cls")
-    parser.add_argument("--results-dir", type=str, default=str(PROJECT_ROOT / "results" / "eophtha"))
+    parser.add_argument("--project", type=str, default=str(PROJECT_ROOT / "runs" / "merge_crop"))
+    parser.add_argument("--name", type=str, default="yolo12_1cls")
+    parser.add_argument("--results-dir", type=str, default=str(PROJECT_ROOT / "results" / "merge_crop"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--lr0", type=float, default=0.0015)
-    parser.add_argument("--momentum", type=float, default=0.9)
+    parser.add_argument("--momentum", type=float, default=0.937)
     parser.add_argument("--optimizer", type=str, default="adamw")
     parser.add_argument("--exist-ok", action="store_true")
     parser.add_argument("--tensorboard", action="store_true")
     parser.add_argument("--eval-after", action="store_true")
-    parser.add_argument("--eval-split", type=str, default="test")
-    parser.add_argument("--conf", type=float, default=0.25)
+    parser.add_argument("--eval-split", type=str, default="test_fgart")
+    parser.add_argument("--conf", type=float, default=0.25, help="predict용; val은 기본 0.001")
     parser.add_argument("--iou", type=float, default=0.5)
-    parser.add_argument("--predict-after", action="store_true")
     args = parser.parse_args()
 
-    args.data_root = str(DATA_ROOT)
-    if not DATA_ROOT.exists():
-        raise SystemExit(f"data root not found: {DATA_ROOT}")
+    data_root = Path(args.data_root).resolve()
+    if not data_root.exists():
+        raise SystemExit(f"data root not found: {data_root}")
 
-    if args.name is None:
-        args.name = "yolo12_1cls"
-
-    data_yaml = DATA_ROOT / "eophtha_1cls.yaml"
-    write_data_yaml(data_yaml, DATA_ROOT, NAMES, VAL_FOLDER)
+    data_yaml = data_root / "merge_1cls.yaml"
+    write_data_yaml(data_yaml, data_root, NAMES, VAL_FOLDER)
 
     args.project = str(Path(args.project).resolve())
     args.results_dir = str(Path(args.results_dir).resolve())

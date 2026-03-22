@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+"""
+FGART YOLOv12l 학습 스크립트 (4cls / 1cls 공용)
+
+사용법:
+    # 4cls 학습
+    python scripts/fgart_yolo12.py --variant 4cls --device 0
+
+    # 1cls 학습
+    python scripts/fgart_yolo12.py --variant 1cls --device 1
+"""
 from __future__ import annotations
 
 import argparse
@@ -14,18 +24,30 @@ PROJECT_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection"
 DATA_ROOT_BASE = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data")
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-DATA_ROOT = DATA_ROOT_BASE / "FGART_yolo_1cls"
-NAMES = ["lesion"]
+
+VARIANT_CFG = {
+    "4cls": {
+        "data_root": DATA_ROOT_BASE / "FGART_yolo_4cls",
+        "names": ["MA", "HE", "EX", "SE"],
+        "yaml": "fgart_4cls.yaml",
+        "default_name": "yolo12",
+    },
+    "1cls": {
+        "data_root": DATA_ROOT_BASE / "FGART_yolo_1cls",
+        "names": ["lesion"],
+        "yaml": "fgart_1cls.yaml",
+        "default_name": "yolo12_1cls",
+    },
+}
 
 
-# config 저장
-def write_data_yaml(out_path: Path, data_root: Path, names: list[str]) -> None:
+def write_data_yaml(out_path: Path, data_root: Path, names: list[str], val_folder: str = "val") -> None:
     out_path.write_text(
         "\n".join(
             [
                 f"path: {data_root}",
                 "train: train/images",
-                "val: val/images",
+                f"val: {val_folder}/images",
                 "test: test/images",
                 f"names: {names}",
                 "",
@@ -34,7 +56,7 @@ def write_data_yaml(out_path: Path, data_root: Path, names: list[str]) -> None:
         encoding="utf-8",
     )
 
-# 실행
+
 def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
     model = YOLO(args.model)
     model.train(
@@ -58,7 +80,7 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
         # 학습 효율
         amp=True,
         cache="disk",
-        patience=100,
+        patience=50,
         # 작은 객체용 증강 (MA 등)
         mosaic=0,
         close_mosaic=25,
@@ -91,27 +113,20 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
 
         cm = metrics.confusion_matrix.matrix
         nc = cm.shape[0] - 1
+        tp_correct_class = cm[:nc, :nc].diagonal().sum()
         total_gt = cm[:nc, :].sum()
         total_detected = cm[:nc, :nc].sum()
 
         detection_acc = total_detected / total_gt if total_gt > 0 else 0
+        classification_acc = tp_correct_class / total_detected if total_detected > 0 else 0
+        overall_acc = tp_correct_class / total_gt if total_gt > 0 else 0
 
-        base_dir = Path(args.results_dir)
-        results_df = pd.DataFrame(
+        pd.DataFrame(
             {
-                "metric": [
-                    "mAP50",
-                    "mAP50-95",
-                    "detection_acc",
-                ],
-                "value": [
-                    metrics.box.map50,
-                    metrics.box.map,
-                    detection_acc,
-                ],
+                "metric": ["mAP50", "mAP50-95", "detection_acc", "classification_acc", "overall_acc"],
+                "value": [metrics.box.map50, metrics.box.map, detection_acc, classification_acc, overall_acc],
             }
-        )
-        results_df.to_csv(eval_dir / "metrics.csv", index=False)
+        ).to_csv(eval_dir / "metrics.csv", index=False)
 
         import sys
         if str(PROJECT_ROOT) not in sys.path:
@@ -139,57 +154,17 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
             )
 
 
-def run_yolov12_repo(args: argparse.Namespace, data_yaml: Path) -> None:
-    if args.repo is None:
-        raise SystemExit("--repo is required for backend=yolov12")
-    repo = Path(args.repo)
-    train_py = repo / "train.py"
-    if not train_py.exists():
-        raise SystemExit(f"train.py not found in repo: {train_py}")
-
-    cmd = [
-        "python",
-        str(train_py),
-        "--data",
-        str(data_yaml),
-        "--weights",
-        args.model,
-        "--img",
-        str(args.imgsz),
-        "--epochs",
-        str(args.epochs),
-        "--batch",
-        str(args.batch),
-        "--device",
-        str(args.device),
-        "--workers",
-        str(args.workers),
-        "--project",
-        str(args.project),
-        "--name",
-        str(args.name),
-        "--seed",
-        str(args.seed),
-    ]
-    if args.exist_ok:
-        cmd.append("--exist-ok")
-    print("[RUN]", " ".join(cmd))
-    subprocess.run(cmd, check=True, cwd=str(repo))
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="FGART 1cls YOLOv12 training launcher")
-    parser.add_argument("--backend", choices=["ultralytics", "yolov12"], default="ultralytics")
-    parser.add_argument("--repo", type=str, default=None, help="YOLOv12 repo path (backend=yolov12)")
-    parser.add_argument("--data-root", type=str, default=str(DATA_ROOT))
+    parser = argparse.ArgumentParser(description="FGART YOLOv12l training launcher (4cls / 1cls)")
+    parser.add_argument("--variant", choices=["4cls", "1cls"], default="4cls")
     parser.add_argument("--model", type=str, default=str(PROJECT_ROOT / "weights" / "yolov12l.pt"))
     parser.add_argument("--imgsz", type=int, default=1280)
     parser.add_argument("--epochs", type=int, default=300)
-    parser.add_argument("--batch", type=int, default=8)
+    parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--device", type=str, default="0")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--project", type=str, default=str(PROJECT_ROOT / "runs" / "fgart"))
-    parser.add_argument("--name", type=str, default="yolo12_1cls")
+    parser.add_argument("--name", type=str, default=None, help="미지정 시 variant에 따라 자동 설정")
     parser.add_argument("--results-dir", type=str, default=str(PROJECT_ROOT / "results" / "fgart"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--lr0", type=float, default=0.0015)
@@ -204,12 +179,20 @@ def main() -> None:
     parser.add_argument("--predict-after", action="store_true")
     args = parser.parse_args()
 
-    data_root = Path(args.data_root)
+    cfg = VARIANT_CFG[args.variant]
+    data_root = cfg["data_root"]
+    names = cfg["names"]
+    yaml_name = cfg["yaml"]
+
+    args.data_root = str(data_root)
     if not data_root.exists():
         raise SystemExit(f"data root not found: {data_root}")
 
-    data_yaml = data_root / "fgart_1cls.yaml"
-    write_data_yaml(data_yaml, data_root, NAMES)
+    if args.name is None:
+        args.name = cfg["default_name"]
+
+    data_yaml = data_root / yaml_name
+    write_data_yaml(data_yaml, data_root, names)
 
     args.project = str(Path(args.project).resolve())
     args.results_dir = str(Path(args.results_dir).resolve())
@@ -224,12 +207,7 @@ def main() -> None:
         time.sleep(1.5)
 
     try:
-        if args.backend == "ultralytics":
-            run_ultralytics(args, data_yaml)
-        else:
-            if args.eval_after:
-                print("[WARN] --eval-after is only supported for backend=ultralytics")
-            run_yolov12_repo(args, data_yaml)
+        run_ultralytics(args, data_yaml)
     finally:
         if tb_proc is not None:
             tb_proc.terminate()

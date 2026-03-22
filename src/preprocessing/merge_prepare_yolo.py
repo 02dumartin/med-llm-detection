@@ -1,15 +1,19 @@
 # src/preprocessing/merge_prepare_yolo.py
 
 """
-Merge (FGART + DDR_re) COCO → YOLO 변환.
+Merge (FGART + DDR / DDR_crop) COCO → YOLO 변환.
 
 입력 (merge_prepare.py 실행 후):
-  - 4cls: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_4scls/{train,val,test_fgart,test_ddr}/{split}.json
-  - 1cls: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_1scls/{train,val,test_fgart,test_ddr}/{split}.json
+  - raw 4cls:  /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_4scls/{train,val,test_fgart,test_ddr}/{split}.json
+  - raw 1cls:  /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_1scls/{train,val,test_fgart,test_ddr}/{split}.json
+  - crop 4cls: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_crop_4scls/{train,val,test_fgart,test_ddr}/{split}.json
+  - crop 1cls: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_crop_1scls/{train,val,test_fgart,test_ddr}/{split}.json
 
 출력:
-  - 4cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_yolo_4cls/{train,val,test_fgart,test_ddr}/{images,labels}
-  - 1cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_yolo_1cls/{train,val,test_fgart,test_ddr}/{images,labels}
+  - raw 4cls YOLO:  /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_yolo_4cls/{train,val,test_fgart,test_ddr}/{images,labels}
+  - raw 1cls YOLO:  /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_yolo_1cls/{train,val,test_fgart,test_ddr}/{images,labels}
+  - crop 4cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_crop_yolo_4cls/{train,val,test_fgart,test_ddr}/{images,labels}
+  - crop 1cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_crop_yolo_1cls/{train,val,test_fgart,test_ddr}/{images,labels}
 
 이미지는 심볼릭 링크. 파일명은 fgart__*, ddr__* prefix 유지.
 """
@@ -20,10 +24,15 @@ import argparse
 
 MERGE_SPLITS = ("train", "val", "test_fgart", "test_ddr")
 
-COCO_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_4scls")
-COCO_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_1scls")
-YOLO_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_yolo_4cls")
-YOLO_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_yolo_1cls")
+RAW_COCO_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_4scls")
+RAW_COCO_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_1scls")
+RAW_YOLO_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_yolo_4cls")
+RAW_YOLO_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_yolo_1cls")
+
+CROP_COCO_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_crop_4scls")
+CROP_COCO_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_crop_1scls")
+CROP_YOLO_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_crop_yolo_4cls")
+CROP_YOLO_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Merge_crop_yolo_1cls")
 
 
 def coco_bbox_to_yolo(bbox, img_w, img_h):
@@ -99,8 +108,26 @@ def convert_coco_to_yolo(
                 label_path.write_text("", encoding="utf-8")
 
 
+def get_variant_roots(ddr_source: str, is_1cls: bool) -> tuple[Path, Path]:
+    if ddr_source == "crop":
+        return (
+            CROP_COCO_1CLS_ROOT if is_1cls else CROP_COCO_4CLS_ROOT,
+            CROP_YOLO_1CLS_ROOT if is_1cls else CROP_YOLO_4CLS_ROOT,
+        )
+    return (
+        RAW_COCO_1CLS_ROOT if is_1cls else RAW_COCO_4CLS_ROOT,
+        RAW_YOLO_1CLS_ROOT if is_1cls else RAW_YOLO_4CLS_ROOT,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Merge COCO → YOLO 변환")
+    parser.add_argument(
+        "--ddr-source",
+        choices=["raw", "crop"],
+        default="crop",
+        help="어떤 DDR 버전으로 만든 merge COCO를 YOLO로 변환할지 선택",
+    )
     parser.add_argument(
         "--mode",
         choices=["4cls", "1cls", "both"],
@@ -108,22 +135,27 @@ def main():
     )
     args = parser.parse_args()
 
-    print("[Merge YOLO] Merge_4scls / Merge_1scls → Merge_yolo_*")
+    if args.ddr_source == "crop":
+        print("[Merge YOLO] Merge_crop_4scls / Merge_crop_1scls → Merge_crop_yolo_*")
+    else:
+        print("[Merge YOLO] Merge_4scls / Merge_1scls → Merge_yolo_*")
     print("  splits: train, val, test_fgart, test_ddr")
 
     if args.mode in ("4cls", "both"):
+        coco_root, yolo_root = get_variant_roots(args.ddr_source, is_1cls=False)
         print("\n[YOLO] 4cls 변환")
         convert_coco_to_yolo(
-            coco_root=COCO_4CLS_ROOT,
-            yolo_root=YOLO_4CLS_ROOT,
+            coco_root=coco_root,
+            yolo_root=yolo_root,
             splits=MERGE_SPLITS,
             is_1cls=False,
         )
     if args.mode in ("1cls", "both"):
+        coco_root, yolo_root = get_variant_roots(args.ddr_source, is_1cls=True)
         print("\n[YOLO] 1cls 변환")
         convert_coco_to_yolo(
-            coco_root=COCO_1CLS_ROOT,
-            yolo_root=YOLO_1CLS_ROOT,
+            coco_root=coco_root,
+            yolo_root=yolo_root,
             splits=MERGE_SPLITS,
             is_1cls=True,
         )

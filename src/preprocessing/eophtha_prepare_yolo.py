@@ -7,8 +7,8 @@ E-ophtha COCO JSON → YOLO 변환 스크립트.
   - 1cls COCO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_1cls/{train,val,test}/{split}.json
 
 출력:
-  - 4cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/E-OPTHA_yolo_4cls/{train,val,test}/{images,labels}
-  - 1cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/E-OPTHA_yolo_1cls/{train,val,test}/{images,labels}
+  - 4cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_4cls/{train,val,test}/{images,labels}
+  - 1cls YOLO: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_1cls/{train,val,test}/{images,labels}
 
 이미지는 심볼릭 링크로 연결.
 YOLO 라벨 형식: class_id cx cy w_norm h_norm  (0-based, 0~1 정규화)
@@ -25,8 +25,8 @@ COCO_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eop
 COCO_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_1cls")
 
 # YOLO 출력 루트
-YOLO_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/E-OPTHA_yolo_4cls")
-YOLO_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/E-OPTHA_yolo_1cls")
+YOLO_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_4cls")
+YOLO_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_1cls")
 
 
 def coco_bbox_to_yolo(bbox, img_w, img_h):

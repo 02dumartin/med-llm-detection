@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-E-ophtha 4cls YOLOv12l 학습 스크립트.
+E-ophtha 1cls YOLOv12l 학습 스크립트.
 
-- E-ophtha: EX, MA 마스크, 해상도 ~2048x1360
-- imgsz=1920, batch=4 (MA/EX 디테일 유지)
+- E-ophtha lesion (EX+MA 통합) 1cls
 
 사용법:
-    python scirpts/eophtha_yolo12.py --device 0
+    python scripts/eophtha_yolo12_1cls.py --device 5,6
 """
 from __future__ import annotations
 
@@ -23,9 +22,8 @@ PROJECT_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# E-ophtha YOLO 데이터 (eophtha_prepare_yolo.py 출력)
-DATA_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/E-OPTHA_yolo_4cls")
-NAMES = ["MA", "HE", "EX", "SE"]
+DATA_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_1cls")
+NAMES = ["lesion"]
 VAL_FOLDER = "val"
 
 
@@ -66,7 +64,7 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
         cos_lr=True,
         amp=True,
         cache="disk",
-        patience=100,
+        patience=50,
         mosaic=0,
         close_mosaic=25,
         mixup=0.0,
@@ -98,30 +96,14 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
 
         cm = metrics.confusion_matrix.matrix
         nc = cm.shape[0] - 1
-        tp_correct_class = cm[:nc, :nc].diagonal().sum()
         total_gt = cm[:nc, :].sum()
         total_detected = cm[:nc, :nc].sum()
-
         detection_acc = total_detected / total_gt if total_gt > 0 else 0
-        classification_acc = tp_correct_class / total_detected if total_detected > 0 else 0
-        overall_acc = tp_correct_class / total_gt if total_gt > 0 else 0
 
         results_df = pd.DataFrame(
             {
-                "metric": [
-                    "mAP50",
-                    "mAP50-95",
-                    "detection_acc",
-                    "classification_acc",
-                    "overall_acc",
-                ],
-                "value": [
-                    metrics.box.map50,
-                    metrics.box.map,
-                    detection_acc,
-                    classification_acc,
-                    overall_acc,
-                ],
+                "metric": ["mAP50", "mAP50-95", "detection_acc"],
+                "value": [metrics.box.map50, metrics.box.map, detection_acc],
             }
         )
         results_df.to_csv(eval_dir / "metrics.csv", index=False)
@@ -152,17 +134,15 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="E-ophtha 4cls YOLOv12 training launcher")
-    parser.add_argument("--backend", choices=["ultralytics", "yolov12"], default="ultralytics")
-    parser.add_argument("--repo", type=str, default=None, help="YOLOv12 repo path (backend=yolov12)")
+    parser = argparse.ArgumentParser(description="E-ophtha 1cls YOLOv12 training launcher")
     parser.add_argument("--model", type=str, default=str(PROJECT_ROOT / "weights" / "yolov12l.pt"))
     parser.add_argument("--imgsz", type=int, default=1920)
     parser.add_argument("--epochs", type=int, default=300)
     parser.add_argument("--batch", type=int, default=4)
-    parser.add_argument("--device", type=str, default="0")
+    parser.add_argument("--device", type=str, default="5,6")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--project", type=str, default=str(PROJECT_ROOT / "runs" / "eophtha"))
-    parser.add_argument("--name", type=str, default=None, help="default: yolo12")
+    parser.add_argument("--name", type=str, default=None, help="default: yolo12_1cls")
     parser.add_argument("--results-dir", type=str, default=str(PROJECT_ROOT / "results" / "eophtha"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--lr0", type=float, default=0.0015)
@@ -182,9 +162,9 @@ def main() -> None:
         raise SystemExit(f"data root not found: {DATA_ROOT}")
 
     if args.name is None:
-        args.name = "yolo12"
+        args.name = "yolo12_1cls"
 
-    data_yaml = DATA_ROOT / "eophtha_4cls.yaml"
+    data_yaml = DATA_ROOT / "eophtha_1cls.yaml"
     write_data_yaml(data_yaml, DATA_ROOT, NAMES, VAL_FOLDER)
 
     args.project = str(Path(args.project).resolve())
