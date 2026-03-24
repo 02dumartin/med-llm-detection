@@ -13,6 +13,7 @@ import argparse
 import subprocess
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -22,7 +23,10 @@ PROJECT_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-DATA_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_1cls")
+DEFAULT_DATA_ROOTS = [
+    Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_1cls"),
+    Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/E-OPTHA_yolo_1cls"),
+]
 NAMES = ["lesion"]
 VAL_FOLDER = "val"
 
@@ -43,6 +47,97 @@ def write_data_yaml(out_path: Path, data_root: Path, names: list[str], val_folde
     )
 
 
+def resolve_data_root(cli_path: str | None) -> Path:
+    candidates: list[Path] = []
+    if cli_path:
+        candidates.append(Path(cli_path).expanduser().resolve())
+    candidates.extend(DEFAULT_DATA_ROOTS)
+
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for path in candidates:
+        if path not in seen:
+            ordered.append(path)
+            seen.add(path)
+
+    for path in ordered:
+        if path.exists():
+            return path
+
+    checked = "\n".join(f"  - {path}" for path in ordered)
+    raise SystemExit(f"data root not found. Checked:\n{checked}")
+
+
+def inspect_labels(data_root: Path) -> None:
+    class_counter: Counter[int] = Counter()
+    split_stats: dict[str, dict[str, int]] = {}
+    dense_files: list[tuple[int, str]] = []
+    issues: list[str] = []
+
+    for split in ("train", "val", "test"):
+        label_dir = data_root / split / "labels"
+        label_files = sorted(label_dir.glob("*.txt"))
+        nonempty = 0
+        backgrounds = 0
+        objects = 0
+
+        for label_path in label_files:
+            text = label_path.read_text(encoding="utf-8").strip()
+            if not text:
+                backgrounds += 1
+                dense_files.append((0, f"{split}/{label_path.name}"))
+                continue
+
+            lines = [line for line in text.splitlines() if line.strip()]
+            nonempty += 1
+            objects += len(lines)
+            dense_files.append((len(lines), f"{split}/{label_path.name}"))
+
+            for idx, line in enumerate(lines, 1):
+                parts = line.split()
+                if len(parts) != 5:
+                    issues.append(f"{split}/{label_path.name}:{idx} invalid field count -> {line}")
+                    continue
+
+                try:
+                    cls_id = int(float(parts[0]))
+                    x, y, w, h = map(float, parts[1:])
+                except ValueError:
+                    issues.append(f"{split}/{label_path.name}:{idx} parse error -> {line}")
+                    continue
+
+                class_counter[cls_id] += 1
+                if cls_id != 0:
+                    issues.append(f"{split}/{label_path.name}:{idx} invalid class id {cls_id}")
+                if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0 and 0.0 < w <= 1.0 and 0.0 < h <= 1.0):
+                    issues.append(f"{split}/{label_path.name}:{idx} out-of-range box -> {line}")
+                if x - w / 2 < 0 or x + w / 2 > 1 or y - h / 2 < 0 or y + h / 2 > 1:
+                    issues.append(f"{split}/{label_path.name}:{idx} box extends outside image -> {line}")
+
+        split_stats[split] = {
+            "files": len(label_files),
+            "nonempty": nonempty,
+            "backgrounds": backgrounds,
+            "objects": objects,
+        }
+
+    if issues:
+        preview = "\n".join(f"  - {issue}" for issue in issues[:20])
+        more = "" if len(issues) <= 20 else f"\n  ... {len(issues) - 20} more"
+        raise SystemExit(f"label sanity check failed:\n{preview}{more}")
+
+    print("[Eophtha 1cls] label summary")
+    for split, stats in split_stats.items():
+        print(
+            f"  {split}: files={stats['files']} nonempty={stats['nonempty']} "
+            f"backgrounds={stats['backgrounds']} objects={stats['objects']}"
+        )
+    print(f"  classes: {dict(sorted(class_counter.items()))}")
+    print("  densest files:")
+    for count, name in sorted(dense_files, reverse=True)[:8]:
+        print(f"    {name}: {count} objects")
+
+
 def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
     model = YOLO(args.model)
     model.train(
@@ -56,13 +151,14 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
         name=args.name,
         seed=args.seed,
         exist_ok=args.exist_ok,
+        single_cls=True,
         optimizer=args.optimizer,
         lr0=args.lr0,
         lrf=0.01,
         momentum=args.momentum,
         weight_decay=0.0005,
         cos_lr=True,
-        amp=True,
+        amp=args.amp,
         cache="disk",
         patience=50,
         mosaic=0,
@@ -135,19 +231,22 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="E-ophtha 1cls YOLOv12 training launcher")
+    parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--model", type=str, default=str(PROJECT_ROOT / "weights" / "yolov12l.pt"))
-    parser.add_argument("--imgsz", type=int, default=1920)
+    parser.add_argument("--imgsz", type=int, default=1536)
     parser.add_argument("--epochs", type=int, default=300)
-    parser.add_argument("--batch", type=int, default=4)
-    parser.add_argument("--device", type=str, default="5,6")
-    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--batch", type=int, default=2)
+    parser.add_argument("--device", type=str, default="0")
+    parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--project", type=str, default=str(PROJECT_ROOT / "runs" / "eophtha"))
     parser.add_argument("--name", type=str, default=None, help="default: yolo12_1cls")
     parser.add_argument("--results-dir", type=str, default=str(PROJECT_ROOT / "results" / "eophtha"))
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--lr0", type=float, default=0.0015)
+    parser.add_argument("--lr0", type=float, default=0.0005)
     parser.add_argument("--momentum", type=float, default=0.937)
     parser.add_argument("--optimizer", type=str, default="adamw")
+    parser.add_argument("--amp", action="store_true", help="enable AMP mixed precision")
+    parser.add_argument("--no-amp", dest="amp", action="store_false", help="disable AMP mixed precision")
     parser.add_argument("--exist-ok", action="store_true")
     parser.add_argument("--tensorboard", action="store_true")
     parser.add_argument("--eval-after", action="store_true")
@@ -155,17 +254,18 @@ def main() -> None:
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--iou", type=float, default=0.5)
     parser.add_argument("--predict-after", action="store_true")
+    parser.set_defaults(amp=False)
     args = parser.parse_args()
 
-    args.data_root = str(DATA_ROOT)
-    if not DATA_ROOT.exists():
-        raise SystemExit(f"data root not found: {DATA_ROOT}")
+    data_root = resolve_data_root(args.data_root)
+    inspect_labels(data_root)
+    args.data_root = str(data_root)
 
     if args.name is None:
         args.name = "yolo12_1cls"
 
-    data_yaml = DATA_ROOT / "eophtha_1cls.yaml"
-    write_data_yaml(data_yaml, DATA_ROOT, NAMES, VAL_FOLDER)
+    data_yaml = data_root / "eophtha_1cls.yaml"
+    write_data_yaml(data_yaml, data_root, NAMES, VAL_FOLDER)
 
     args.project = str(Path(args.project).resolve())
     args.results_dir = str(Path(args.results_dir).resolve())

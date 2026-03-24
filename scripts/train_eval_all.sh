@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 # ============================================================
 # train_eval_all.sh
-# DDR, Merge, Eophtha 각 4cls+1cls 학습
+# Eophtha 4cls+1cls 학습 전용 실행 스크립트
 #
 # 학습 구조:
-#   Round 1: DDR 4cls (GPU 5)     +  DDR 1cls (GPU 6)      ← 병렬
-#   Round 2: Merge 4cls (GPU 5,6) →  Merge 1cls (GPU 5,6)  ← 순차
-#   Round 3: Eophtha 4cls (GPU 5) +  Eophtha 1cls (GPU 6)  ← 병렬
-#
-# DDR/Merge: imgsz=1920, batch=4 (스크립트 기본값)
+#   Round 1: DDR 4cls + DDR 1cls  ← 주석 처리
+#   Round 2: Merge 4cls → Merge 1cls  ← 주석 처리
+#   Round 3: Eophtha 4cls (GPU 5) + Eophtha 1cls (GPU 7)  ← 병렬
 #
 # 현재: train만 실행 (test/eval 비활성화)
 #
@@ -46,10 +44,12 @@ EVAL_PY="$BASE/src/eval/yolo_eval.py"
 OVERLAY_PY="$BASE/src/eval/yolo_overlay.py"
 
 # ── GPU 설정 ────────────────────────────────────────────────
-GPU_DDR=5             # DDR 4cls / Merge 4cls / Eophtha 4cls
-GPU_FGART=6           # DDR 1cls / Merge 1cls / Eophtha 1cls
+GPU_DDR=5             # DDR train 비활성화
+GPU_FGART=7           # DDR/Merge train 비활성화
 GPU_EVAL_FGART=5      # FGART 모델 eval GPU
-GPU_EVAL_DDR=6        # DDR 모델 eval GPU
+GPU_EVAL_DDR=7        # DDR 모델 eval GPU
+GPU_EOPTHA_4CLS=5     # Eophtha 4cls train GPU
+GPU_EOPTHA_1CLS=7     # Eophtha 1cls train GPU
 
 # ── eval 파라미터 ────────────────────────────────────────────
 CONF="${CONF:-0.25}"
@@ -138,7 +138,7 @@ run_overlay() {
 }
 
 # ════════════════════════════════════════════════════════════
-# 1단계: 학습 (DDR 병렬 → Merge 병렬 → Eophtha 병렬)
+# 1단계: 학습 (Eophtha 전용 병렬)
 # ════════════════════════════════════════════════════════════
 if ! $SKIP_TRAIN; then
 
@@ -151,30 +151,31 @@ if ! $SKIP_TRAIN; then
     # wait_pids "DDR 4cls 학습" $PID_D4 "DDR_4cls" "DDR 1cls 학습" $PID_D1 "DDR_1cls"
     log "학습 Round 1: DDR 4cls + DDR 1cls [SKIP: commented out]"
 
-    # ── Round 2: Merge 4cls (GPU 5,6)  →  Merge 1cls (GPU 5,6) ──
-    log "학습 Round 2: Merge 4cls (GPU 5,6)  →  Merge 1cls (GPU 5,6)"
+    # ── Round 2: Merge 4cls (GPU 0)  →  Merge 1cls (GPU 0) ──
+    # log "학습 Round 2: Merge 4cls (GPU 0)  →  Merge 1cls (GPU 0) [SKIP: commented out]"
+    #
+    # train_bg "Merge_4cls" "$MERGE4_PY" --device "0"; PID_M4=$LAST_BG_PID
+    # if wait "$PID_M4"; then
+    #     echo "[완료] Merge 4cls 학습" >&2
+    # else
+    #     echo "[FAIL] Merge 4cls 학습  (로그: $LOG_DIR/Merge_4cls.log)" >&2
+    #     exit 1
+    # fi
+    #
+    # train_bg "Merge_1cls" "$MERGE1_PY" --device "0"; PID_M1=$LAST_BG_PID
+    # if wait "$PID_M1"; then
+    #     echo "[완료] Merge 1cls 학습" >&2
+    # else
+    #     echo "[FAIL] Merge 1cls 학습  (로그: $LOG_DIR/Merge_1cls.log)" >&2
+    #     exit 1
+    # fi
+    log "학습 Round 2: Merge 4cls → Merge 1cls [SKIP: commented out]"
 
-    train_bg "Merge_4cls" "$MERGE4_PY" --device "5,6"; PID_M4=$LAST_BG_PID
-    if wait "$PID_M4"; then
-        echo "[완료] Merge 4cls 학습" >&2
-    else
-        echo "[FAIL] Merge 4cls 학습  (로그: $LOG_DIR/Merge_4cls.log)" >&2
-        exit 1
-    fi
+    # ── Round 3: Eophtha 4cls (GPU $GPU_EOPTHA_4CLS)  +  Eophtha 1cls (GPU $GPU_EOPTHA_1CLS) ──
+    log "학습 Round 3: Eophtha 4cls (GPU $GPU_EOPTHA_4CLS)  +  Eophtha 1cls (GPU $GPU_EOPTHA_1CLS)"
 
-    train_bg "Merge_1cls" "$MERGE1_PY" --device "5,6"; PID_M1=$LAST_BG_PID
-    if wait "$PID_M1"; then
-        echo "[완료] Merge 1cls 학습" >&2
-    else
-        echo "[FAIL] Merge 1cls 학습  (로그: $LOG_DIR/Merge_1cls.log)" >&2
-        exit 1
-    fi
-
-    # ── Round 3: Eophtha 4cls (GPU $GPU_DDR)  +  Eophtha 1cls (GPU $GPU_FGART) ──
-    log "학습 Round 3: Eophtha 4cls (GPU $GPU_DDR)  +  Eophtha 1cls (GPU $GPU_FGART)"
-
-    train_bg "Eophtha_4cls" "$EOPTHA4_PY" --device $GPU_DDR;     PID_E4=$LAST_BG_PID
-    train_bg "Eophtha_1cls" "$EOPTHA1_PY" --device "$GPU_FGART"; PID_E1=$LAST_BG_PID
+    train_bg "Eophtha_4cls" "$EOPTHA4_PY" --device "$GPU_EOPTHA_4CLS"; PID_E4=$LAST_BG_PID
+    train_bg "Eophtha_1cls" "$EOPTHA1_PY" --device "$GPU_EOPTHA_1CLS"; PID_E1=$LAST_BG_PID
 
     wait_pids "Eophtha 4cls 학습" $PID_E4 "Eophtha_4cls" "Eophtha 1cls 학습" $PID_E1 "Eophtha_1cls"
 
@@ -229,9 +230,5 @@ fi
 log "전체 완료 ✓"
 echo ""
 echo "  학습 로그:"
-echo "    $LOG_DIR/DDR_4cls.log"
-echo "    $LOG_DIR/DDR_1cls.log"
-echo "    $LOG_DIR/Merge_4cls.log"
-echo "    $LOG_DIR/Merge_1cls.log"
 echo "    $LOG_DIR/Eophtha_4cls.log"
 echo "    $LOG_DIR/Eophtha_1cls.log"

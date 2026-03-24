@@ -297,11 +297,68 @@ def build_coco_json(
     return json_path
 
 
+def remap_4cls_json_2_to_1(out_root: Path = OUT_4CLS) -> None:
+    """E-ophtha 4cls COCO JSON에서 category_id 2(EX)를 1로 remap.
+
+    실제 E-ophtha는 MA(0), EX(2)만 존재하므로 2cls처럼 쓰기 위해
+    EX를 1로 바꾸고 categories도 [0: MA, 1: EX]로 재정의한다.
+    """
+    allowed_before = {0, 2}
+    changed_total = 0
+
+    for split_name in SPLITS:
+        json_path = out_root / split_name / f"{split_name}.json"
+        if not json_path.exists():
+            print(f"[WARN] JSON not found: {json_path}")
+            continue
+
+        with open(json_path, "r", encoding="utf-8") as f:
+            coco = json.load(f)
+
+        anns = coco.get("annotations", [])
+        seen_ids = {ann.get("category_id") for ann in anns}
+        unexpected = sorted(cid for cid in seen_ids if cid not in allowed_before)
+        if unexpected:
+            raise SystemExit(
+                f"[ERROR] unexpected category ids in {json_path}: {unexpected} "
+                f"(expected subset of {sorted(allowed_before)})"
+            )
+
+        changed = 0
+        for ann in anns:
+            if ann.get("category_id") == 2:
+                ann["category_id"] = 1
+                changed += 1
+
+        coco["categories"] = [
+            {"id": 0, "name": "MA"},
+            {"id": 1, "name": "EX"},
+        ]
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(coco, f, indent=2, ensure_ascii=False)
+
+        changed_total += changed
+        print(
+            f"[OK] remapped {json_path}: changed_annotations={changed}, "
+            f"categories={[c['name'] for c in coco['categories']]}"
+        )
+
+    print(f"[DONE] total changed annotations: {changed_total}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="E-ophtha → COCO JSON")
-    parser.add_argument("--mode", choices=["4cls", "1cls", "both"], default="both")
+    parser.add_argument("--mode", choices=["4cls", "1cls", "both", "remap_2to1"], default="both")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+
+    if args.mode == "remap_2to1":
+        print("\n[E-ophtha] 4cls JSON remap (2 -> 1)...")
+        remap_4cls_json_2_to_1(OUT_4CLS)
+        print(f"  → {OUT_4CLS}")
+        print("Done.")
+        return
 
     print("[E-ophtha] 레코드 구성...")
     records_df = build_records()
