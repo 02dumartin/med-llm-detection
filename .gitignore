@@ -66,3 +66,7 @@ data/
 *.npy
 *.npz
 *.mat
+
+# Result
+results/
+reports/
