@@ -1,22 +1,16 @@
-#!/usr/bin/env python3
-# export_eval_reports.py
 from __future__ import annotations
 
 import argparse
 import html
 import re
-import sys
 import zipfile
 from pathlib import Path
 
 import pandas as pd
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
-
-from export_eval_summary import (
+from src.yolo.reporting.summary import (
     DEFAULT_RESULTS_ROOT,
+    SUMMARY_COLUMNS,
     TEST_LABELS,
     apply_filters,
     collect_summary_rows,
@@ -35,39 +29,12 @@ LONG_COLUMNS = [
     "conf",
     "iou",
     "class",
-    "AP 0.5",
-    "AP 0.5:0.95",
-    "Det acc",
-    "Cls acc",
-    "Ovr acc",
-    "FPPI 0.125",
-    "FPPI 0.25",
-    "FPPI 0.5",
-    "FPPI 1",
-    "FPPI 2",
-    "FPPI 4",
-    "FPPI 8",
-    "AVG",
+    *SUMMARY_COLUMNS,
     "source_dir",
 ]
 BLOCK_COLUMNS = [
     "class",
-    "detection_acc",
-    "classification_acc",
-    "overall_acc",
-    "precision",
-    "recall",
-    "f1",
-    "AP@0.5",
-    "AP@0.5:0.95",
-    "FPPI=0.125",
-    "FPPI=0.25",
-    "FPPI=0.5",
-    "FPPI=1.0",
-    "FPPI=2.0",
-    "FPPI=4.0",
-    "FPPI=8.0",
-    "avg_FROC",
+    *SUMMARY_COLUMNS,
 ]
 EVAL_NAME_RE = re.compile(r"^(?P<test_data>.+)_(?P<conf>[^_]+)_(?P<iou>[^_]+)$")
 TEST_ORDER = ["fgart", "ddr", "eophtha", "idrid", "diaretdb1"]
@@ -99,7 +66,7 @@ def build_long_df(
 ) -> pd.DataFrame:
     rows = collect_summary_rows(results_root)
     if not rows:
-        raise SystemExit(f"No metrics_total.csv found under: {results_root}")
+        raise SystemExit(f"No evaluation summary files found under: {results_root}")
 
     df = pd.DataFrame(rows)
     df = apply_filters(
@@ -245,9 +212,7 @@ def worksheet_xml(rows: list[list]) -> str:
 def workbook_xml(sheet_names: list[str]) -> str:
     sheets = []
     for idx, name in enumerate(sheet_names, start=1):
-        sheets.append(
-            f'<sheet name="{html.escape(name)}" sheetId="{idx}" r:id="rId{idx}"/>'
-        )
+        sheets.append(f'<sheet name="{html.escape(name)}" sheetId="{idx}" r:id="rId{idx}"/>')
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
@@ -314,23 +279,24 @@ def write_simple_xlsx(out_path: Path, sheets: list[tuple[str, list[list]]]) -> N
             zf.writestr(f"xl/worksheets/sheet{idx}.xml", worksheet_xml(rows))
 
 
-def create_master_workbook(df_long: pd.DataFrame, out_path: Path) -> None:
+def create_master_workbook(entries: list[dict], out_path: Path) -> None:
     used: set[str] = set()
     sheets = []
 
-    all_long_rows = [LONG_COLUMNS.copy()]
-    all_long_rows.extend(df_long[LONG_COLUMNS].values.tolist())
-    sheets.append((sanitize_sheet_name("all_long", used), all_long_rows))
+    summary_rows = [["train_data", "model_name", "num_test_blocks", "conf_values", "iou_values"]]
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for entry in entries:
+        grouped.setdefault((entry["train_data"], entry["model_name"]), []).append(entry)
 
-    meta_rows = [["key", "value"]]
-    meta_rows.append(["num_rows", len(df_long)])
-    meta_rows.append(["train_data", ", ".join(sorted(df_long["train_data"].unique()))])
-    meta_rows.append(["model_names", ", ".join(sorted(df_long["model_name"].unique()))])
-    meta_rows.append(["model_families", ", ".join(sorted(df_long["model_family"].unique()))])
-    meta_rows.append(["test_data", ", ".join(sorted(df_long["test_data"].unique()))])
-    meta_rows.append(["confs", ", ".join(sorted(df_long["conf"].astype(str).unique()))])
-    meta_rows.append(["ious", ", ".join(sorted(df_long["iou"].astype(str).unique()))])
-    sheets.append((sanitize_sheet_name("meta", used), meta_rows))
+    for (train_data, model_name), model_entries in sorted(grouped.items()):
+        conf_values = ", ".join(sorted({str(e["conf"]) for e in model_entries}))
+        iou_values = ", ".join(sorted({str(e["iou"]) for e in model_entries}))
+        summary_rows.append([train_data, model_name, len(model_entries), conf_values, iou_values])
+    sheets.append((sanitize_sheet_name("summary", used), summary_rows))
+
+    for (train_data, model_name), model_entries in sorted(grouped.items()):
+        sheet_rows = build_model_sheet_rows(model_entries)
+        sheets.append((sanitize_sheet_name(f"{train_data}_{model_name}", used), sheet_rows))
 
     write_simple_xlsx(out_path, sheets)
 
@@ -391,9 +357,6 @@ def main() -> None:
     long_csv_path = args.reports_dir / "all_eval_summary.csv"
     df_long[LONG_COLUMNS].to_csv(long_csv_path, index=False)
 
-    master_xlsx_path = args.reports_dir / "master.xlsx"
-    create_master_workbook(df_long, master_xlsx_path)
-
     all_entries = collect_metrics_total_entries(args.results_root)
     filtered = apply_filters(
         df_long.copy(),
@@ -413,6 +376,9 @@ def main() -> None:
         e for e in all_entries
         if (e["train_data"], e["model_name"], e["test_data"], str(e["conf"]), str(e["iou"])) in keep_keys
     ]
+
+    master_xlsx_path = args.reports_dir / "master.xlsx"
+    create_master_workbook(filtered_entries, master_xlsx_path)
     created = create_train_workbooks(args.results_root, filtered_entries, args.reports_dir)
 
     print(f"[DONE] long csv  -> {long_csv_path}")

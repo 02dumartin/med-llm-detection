@@ -1,35 +1,15 @@
-#!/usr/bin/env python3
-"""
-IDRiD COCO JSON → YOLO 변환 스크립트.
-
-입력 (idrid_prepare.py에서 생성):
-  - 4cls: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_4cls/test/test.json
-  - 1cls: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_1cls/test/test.json
-
-출력:
-  - 4cls: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_yolo_4cls/test/{images,labels}
-  - 1cls: /home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_yolo_1cls/test/{images,labels}
-
-이미지는 심볼릭 링크. YOLO 라벨: class_id cx cy w_norm h_norm (0-based, 0~1 정규화)
-"""
-
 from pathlib import Path
-import json
 import argparse
+import json
 
-# COCO 입력 (idrid_prepare.py 출력)
 COCO_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_4cls")
 COCO_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_1cls")
-
-# YOLO 출력
 YOLO_4CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_yolo_4cls")
 YOLO_1CLS_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_yolo_1cls")
-
 SPLIT = "test"
 
 
 def coco_bbox_to_yolo(bbox, img_w, img_h):
-    """COCO bbox [x, y, w, h] → YOLO [cx, cy, w_norm, h_norm]"""
     x, y, w, h = bbox
     cx = (x + w / 2.0) / img_w
     cy = (y + h / 2.0) / img_h
@@ -39,14 +19,13 @@ def coco_bbox_to_yolo(bbox, img_w, img_h):
 
 
 def convert_coco_to_yolo(coco_root: Path, yolo_root: Path, is_1cls: bool = False):
-    """COCO test/test.json → YOLO test/{images,labels}"""
     coco_json = coco_root / SPLIT / f"{SPLIT}.json"
     if not coco_json.exists():
         print(f"[ERROR] COCO JSON not found: {coco_json}")
         return 1
 
-    with open(coco_json, "r", encoding="utf-8") as f:
-        coco = json.load(f)
+    with open(coco_json, "r", encoding="utf-8") as file:
+        coco = json.load(file)
 
     images_by_id = {img["id"]: img for img in coco["images"]}
     anns_by_image = {}
@@ -75,12 +54,11 @@ def convert_coco_to_yolo(coco_root: Path, yolo_root: Path, is_1cls: bool = False
                 dst_img_path.unlink()
             try:
                 dst_img_path.symlink_to(src_img_path.resolve())
-            except OSError as e:
-                print(f"[WARN] symlink failed: {src_img_path} -> {dst_img_path} ({e})")
+            except OSError as exc:
+                print(f"[WARN] symlink failed: {src_img_path} -> {dst_img_path} ({exc})")
 
-        anns = anns_by_image.get(img_id, [])
         label_lines = []
-        for ann in anns:
+        for ann in anns_by_image.get(img_id, []):
             class_id = 0 if is_1cls else int(ann["category_id"])
             cx, cy, wn, hn = coco_bbox_to_yolo(ann["bbox"], img_w, img_h)
             label_lines.append(f"{class_id} {cx:.6f} {cy:.6f} {wn:.6f} {hn:.6f}")
@@ -91,18 +69,13 @@ def convert_coco_to_yolo(coco_root: Path, yolo_root: Path, is_1cls: bool = False
         else:
             label_path.write_text("", encoding="utf-8")
 
-    print(f"  → {yolo_root}")
+    print(f"  -> {yolo_root}")
     return 0
 
 
 def main():
-    parser = argparse.ArgumentParser(description="IDRiD COCO → YOLO 변환")
-    parser.add_argument(
-        "--mode",
-        choices=["4cls", "1cls", "both"],
-        default="both",
-        help="4cls / 1cls / both",
-    )
+    parser = argparse.ArgumentParser(description="IDRiD COCO -> YOLO 변환")
+    parser.add_argument("--mode", choices=["4cls", "1cls", "both"], default="both")
     args = parser.parse_args()
 
     ret = 0

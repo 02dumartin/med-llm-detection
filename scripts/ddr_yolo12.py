@@ -1,47 +1,56 @@
 #!/usr/bin/env python3
 """
-DDR 4cls YOLOv12l 학습 스크립트.
+DDR YOLOv12l 학습 스크립트 (4cls / 1cls 공용).
 
 - DDR은 해상도가 다양함(35종). YOLO는 imgsz로 고정 후 letterbox 리사이즈하므로
   별도 처리 없이 학습 가능. (이미지마다 비율 유지 + 패딩으로 동일 크기 입력)
 
 사용법:
-    python scripts/ddr_yolo12.py --device 2
+    python scripts/ddr_yolo12.py --variant 4cls --device 2
+    python scripts/ddr_yolo12.py --variant 1cls --device 3
 """
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
-import time
 from pathlib import Path
 
-import pandas as pd
 from ultralytics import YOLO
 
 PROJECT_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection")
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-DATA_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_yolo_4cls")
-NAMES = ["MA", "HE", "EX", "SE"]
+
+from src.yolo.training import (
+    run_yolov12_repo as run_yolov12_repo_helper,
+    save_eval_outputs,
+    start_tensorboard,
+    stop_process,
+    write_data_yaml as write_yolo_data_yaml,
+)
+
+VARIANT_CFG = {
+    "4cls": {
+        "data_root": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_yolo_4cls"),
+        "names": ["MA", "HE", "EX", "SE"],
+        "yaml": "ddr_4cls.yaml",
+        "default_name": "yolo12",
+        "metrics_mode": "multi",
+    },
+    "1cls": {
+        "data_root": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_yolo_1cls"),
+        "names": ["lesion"],
+        "yaml": "ddr_1cls.yaml",
+        "default_name": "yolo12_1cls",
+        "metrics_mode": "single",
+    },
+}
 
 VAL_FOLDER = "valid"
 
 
 def write_data_yaml(out_path: Path, data_root: Path, names: list[str], val_folder: str) -> None:
-    out_path.write_text(
-        "\n".join(
-            [
-                f"path: {data_root}",
-                "train: train/images",
-                f"val: {val_folder}/images",
-                "test: test/images",
-                f"names: {names}",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    write_yolo_data_yaml(out_path, data_root, names, val_folder=val_folder)
 
 
 def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
@@ -83,124 +92,34 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
     )
 
     if args.eval_after:
-        best = Path(args.project) / args.name / "weights" / "best.pt"
-        model = YOLO(str(best))
-        eval_dir = Path(args.results_dir) / args.name
-        eval_dir.mkdir(parents=True, exist_ok=True)
-
-        metrics = model.val(
-            data=str(data_yaml),
-            split=args.eval_split,
+        save_eval_outputs(
+            project_dir=args.project,
+            results_dir=args.results_dir,
+            run_name=args.name,
+            data_yaml=data_yaml,
+            eval_split=args.eval_split,
             iou=args.iou,
-            plots=True,
-            project=str(Path(args.results_dir)),
-            name=args.name,
-            exist_ok=True,
+            metrics_mode=args.metrics_mode,
+            predict_after=args.predict_after,
+            data_root=args.data_root,
+            conf=args.conf,
         )
-
-        cm = metrics.confusion_matrix.matrix
-        nc = cm.shape[0] - 1
-        tp_correct_class = cm[:nc, :nc].diagonal().sum()
-        total_gt = cm[:nc, :].sum()
-        total_detected = cm[:nc, :nc].sum()
-
-        detection_acc = total_detected / total_gt if total_gt > 0 else 0
-        classification_acc = tp_correct_class / total_detected if total_detected > 0 else 0
-        overall_acc = tp_correct_class / total_gt if total_gt > 0 else 0
-
-        results_df = pd.DataFrame(
-            {
-                "metric": [
-                    "mAP50",
-                    "mAP50-95",
-                    "detection_acc",
-                    "classification_acc",
-                    "overall_acc",
-                ],
-                "value": [
-                    metrics.box.map50,
-                    metrics.box.map,
-                    detection_acc,
-                    classification_acc,
-                    overall_acc,
-                ],
-            }
-        )
-        results_df.to_csv(eval_dir / "metrics.csv", index=False)
-
-        import sys
-        if str(PROJECT_ROOT) not in sys.path:
-            sys.path.insert(0, str(PROJECT_ROOT))
-        from src.eval.metrics_utils import compute_per_class_prf_ap
-
-        names = [model.names[i] for i in sorted(model.names.keys())]
-        df_prf_ap = compute_per_class_prf_ap(metrics, cm, names)
-        df_prf_ap.to_csv(eval_dir / "per_class_ap.csv", index=False)
-
-        if args.predict_after:
-            test_images = Path(args.data_root) / "test" / "images"
-            pred_dir = eval_dir / "prediction"
-            pred_dir.mkdir(parents=True, exist_ok=True)
-            model.predict(
-                source=str(test_images),
-                save=True,
-                save_txt=True,
-                save_conf=True,
-                project=str(pred_dir.parent),
-                name="prediction",
-                exist_ok=True,
-                conf=args.conf,
-                iou=args.iou,
-            )
 
 
 def run_yolov12_repo(args: argparse.Namespace, data_yaml: Path) -> None:
-    if args.repo is None:
-        raise SystemExit("--repo is required for backend=yolov12")
-    repo = Path(args.repo)
-    train_py = repo / "train.py"
-    if not train_py.exists():
-        raise SystemExit(f"train.py not found in repo: {train_py}")
-
-    cmd = [
-        "python",
-        str(train_py),
-        "--data",
-        str(data_yaml),
-        "--weights",
-        args.model,
-        "--img",
-        str(args.imgsz),
-        "--epochs",
-        str(args.epochs),
-        "--batch",
-        str(args.batch),
-        "--device",
-        str(args.device),
-        "--workers",
-        str(args.workers),
-        "--project",
-        str(args.project),
-        "--name",
-        str(args.name),
-        "--seed",
-        str(args.seed),
-    ]
-    if args.exist_ok:
-        cmd.append("--exist-ok")
-    print("[RUN]", " ".join(cmd))
-    subprocess.run(cmd, check=True, cwd=str(repo))
+    run_yolov12_repo_helper(args, data_yaml)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="DDR 4cls YOLOv12 training launcher")
+    parser = argparse.ArgumentParser(description="DDR YOLOv12 training launcher (4cls / 1cls)")
+    parser.add_argument("--variant", choices=["4cls", "1cls"], default="4cls")
     parser.add_argument("--backend", choices=["ultralytics", "yolov12"], default="ultralytics")
     parser.add_argument("--repo", type=str, default=None, help="YOLOv12 repo path (backend=yolov12)")
     parser.add_argument("--model", type=str, default=str(PROJECT_ROOT / "weights" / "yolov12l.pt"))
     parser.add_argument("--imgsz", type=int, default=1920, help="DDR 해상도 다양 → letterbox로 이 크기로 통일")
     parser.add_argument("--epochs", type=int, default=300)
     parser.add_argument("--batch", type=int, default=4)
-    parser.add_argument("--device", type=str, default="2")
+    parser.add_argument("--device", type=str, default="0")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--project", type=str, default=str(PROJECT_ROOT / "runs" / "ddr"))
     parser.add_argument("--name", type=str, default=None, help="default: yolo12")
@@ -218,27 +137,28 @@ def main() -> None:
     parser.add_argument("--predict-after", action="store_true")
     args = parser.parse_args()
 
-    args.data_root = str(DATA_ROOT)
-    if not DATA_ROOT.exists():
-        raise SystemExit(f"data root not found: {DATA_ROOT}")
+    cfg = VARIANT_CFG[args.variant]
+    data_root = cfg["data_root"]
+    names = cfg["names"]
+    yaml_name = cfg["yaml"]
+
+    args.metrics_mode = cfg["metrics_mode"]
+    args.data_root = str(data_root)
+    if not data_root.exists():
+        raise SystemExit(f"data root not found: {data_root}")
 
     if args.name is None:
-        args.name = "yolo12"
+        args.name = cfg["default_name"]
 
-    data_yaml = DATA_ROOT / "ddr_4cls.yaml"
-    write_data_yaml(data_yaml, DATA_ROOT, NAMES, VAL_FOLDER)
+    data_yaml = data_root / yaml_name
+    write_data_yaml(data_yaml, data_root, names, VAL_FOLDER)
 
     args.project = str(Path(args.project).resolve())
     args.results_dir = str(Path(args.results_dir).resolve())
 
     tb_proc = None
     if args.tensorboard:
-        tb_proc = subprocess.Popen(
-            ["tensorboard", "--logdir", args.project, "--port", "6006", "--bind_all"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        time.sleep(1.5)
+        tb_proc = start_tensorboard(args.project)
 
     try:
         if args.backend == "ultralytics":
@@ -248,8 +168,7 @@ def main() -> None:
                 print("[WARN] --eval-after is only supported for backend=ultralytics")
             run_yolov12_repo(args, data_yaml)
     finally:
-        if tb_proc is not None:
-            tb_proc.terminate()
+        stop_process(tb_proc)
 
 
 if __name__ == "__main__":

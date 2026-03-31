@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Batch cross-dataset overlay runner.
-# Mirrors scripts/yolo_eval_batch.sh job order, but runs yolo_overlay.py only.
+# Mirrors scripts/yolo_eval_batch.sh job order, but runs src/yolo/overlay.py only.
 # Resume behavior:
 #   - If overlay/pred/.done exists, the job is skipped.
 #   - Re-run the same command to continue from the first incomplete job.
@@ -8,7 +8,7 @@ set -euo pipefail
 
 BASE="/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection"
 VENV_PY="$BASE/.venv/bin/python"
-OVERLAY_PY="$BASE/src/eval/yolo_overlay.py"
+OVERLAY_PY="$BASE/src/yolo/overlay.py"
 LOG_DIR="$BASE/logs/overlay_batch"
 STATUS_TSV="$LOG_DIR/status.tsv"
 

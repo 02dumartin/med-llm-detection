@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Batch cross-dataset evaluation runner (metrics only, no overlay).
-# Reuses src/eval/yolo_eval.py so metric outputs stay identical to yolo_eval_overlay.sh.
+# Batch cross-dataset evaluation runner.
+# Reuses src/yolo/eval.py and writes evaluation CSVs under results/<...>/evaluation/.
 #
 # Default jobs:
 #   fgart_4cls, ddr_4cls, merge_4cls
@@ -10,14 +10,14 @@
 #   fgart, ddr, eophtha, idrid, diaretdb1
 #
 # Resume behavior:
-#   - If a job already produced metrics.csv + per_class_ap.csv + metrics_total.csv, it is skipped.
+#   - If a job already produced the expected evaluation outputs, it is skipped.
 #   - Re-running the same command continues from the first incomplete job.
 #   - Use --force to re-run completed jobs.
 set -euo pipefail
 
 BASE="/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection"
 VENV_PY="$BASE/.venv/bin/python"
-EVAL_PY="$BASE/src/eval/yolo_eval.py"
+EVAL_PY="$BASE/src/yolo/eval.py"
 LOG_DIR="$BASE/logs/eval_batch"
 STATUS_TSV="$LOG_DIR/status.tsv"
 
@@ -199,8 +199,8 @@ is_job_complete() {
         return
     fi
     [[ -f "$eval_dir/.done" ]] || {
-        [[ -f "$eval_dir/overall.csv" ]] &&
-        [[ -f "$eval_dir/class-pr.csv" ]] &&
+        [[ -f "$eval_dir/class-accuracy.csv" ]] &&
+        [[ -f "$eval_dir/class-prediction.csv" ]] &&
         [[ -f "$eval_dir/summary.csv" ]]
     }
 }

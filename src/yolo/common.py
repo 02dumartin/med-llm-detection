@@ -85,7 +85,7 @@ def class_names_for_variant(variant: str) -> list[str]:
 
 def class_colors_for_variant(variant: str, class_names: list[str]) -> list[str]:
     if variant == "4cls":
-        return [CLASS_COLORS[n] for n in class_names]
+        return [CLASS_COLORS[name] for name in class_names]
     return [CLASS_COLORS["lesion"]]
 
 

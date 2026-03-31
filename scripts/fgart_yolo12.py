@@ -12,18 +12,22 @@ FGART YOLOv12l 학습 스크립트 (4cls / 1cls 공용)
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
-import time
 from pathlib import Path
 
-import pandas as pd
 from ultralytics import YOLO
 
 PROJECT_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection")
 DATA_ROOT_BASE = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data")
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.yolo.training import (
+    save_eval_outputs,
+    start_tensorboard,
+    stop_process,
+    write_data_yaml as write_yolo_data_yaml,
+)
 
 VARIANT_CFG = {
     "4cls": {
@@ -42,19 +46,7 @@ VARIANT_CFG = {
 
 
 def write_data_yaml(out_path: Path, data_root: Path, names: list[str], val_folder: str = "val") -> None:
-    out_path.write_text(
-        "\n".join(
-            [
-                f"path: {data_root}",
-                "train: train/images",
-                f"val: {val_folder}/images",
-                "test: test/images",
-                f"names: {names}",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    write_yolo_data_yaml(out_path, data_root, names, val_folder=val_folder)
 
 
 def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
@@ -96,62 +88,18 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
     )
 
     if args.eval_after:
-        best = Path(args.project) / args.name / "weights" / "best.pt"
-        model = YOLO(str(best))
-        eval_dir = Path(args.results_dir) / args.name
-        eval_dir.mkdir(parents=True, exist_ok=True)
-
-        metrics = model.val(
-            data=str(data_yaml),
-            split=args.eval_split,
+        save_eval_outputs(
+            project_dir=args.project,
+            results_dir=args.results_dir,
+            run_name=args.name,
+            data_yaml=data_yaml,
+            eval_split=args.eval_split,
             iou=args.iou,
-            plots=True,
-            project=str(Path(args.results_dir)),
-            name=args.name,
-            exist_ok=True,
+            metrics_mode="multi",
+            predict_after=args.predict_after,
+            data_root=args.data_root,
+            conf=args.conf,
         )
-
-        cm = metrics.confusion_matrix.matrix
-        nc = cm.shape[0] - 1
-        tp_correct_class = cm[:nc, :nc].diagonal().sum()
-        total_gt = cm[:nc, :].sum()
-        total_detected = cm[:nc, :nc].sum()
-
-        detection_acc = total_detected / total_gt if total_gt > 0 else 0
-        classification_acc = tp_correct_class / total_detected if total_detected > 0 else 0
-        overall_acc = tp_correct_class / total_gt if total_gt > 0 else 0
-
-        pd.DataFrame(
-            {
-                "metric": ["mAP50", "mAP50-95", "detection_acc", "classification_acc", "overall_acc"],
-                "value": [metrics.box.map50, metrics.box.map, detection_acc, classification_acc, overall_acc],
-            }
-        ).to_csv(eval_dir / "metrics.csv", index=False)
-
-        import sys
-        if str(PROJECT_ROOT) not in sys.path:
-            sys.path.insert(0, str(PROJECT_ROOT))
-        from src.eval.metrics_utils import compute_per_class_prf_ap
-
-        names = [model.names[i] for i in sorted(model.names.keys())]
-        df_prf_ap = compute_per_class_prf_ap(metrics, cm, names)
-        df_prf_ap.to_csv(eval_dir / "per_class_ap.csv", index=False)
-
-        if args.predict_after:
-            test_images = Path(args.data_root) / "test" / "images"
-            pred_dir = eval_dir / "prediction"
-            pred_dir.mkdir(parents=True, exist_ok=True)
-            model.predict(
-                source=str(test_images),
-                save=True,
-                save_txt=True,
-                save_conf=True,
-                project=str(pred_dir.parent),
-                name="prediction",
-                exist_ok=True,
-                conf=args.conf,
-                iou=args.iou,
-            )
 
 
 def main() -> None:
@@ -199,18 +147,12 @@ def main() -> None:
 
     tb_proc = None
     if args.tensorboard:
-        tb_proc = subprocess.Popen(
-            ["tensorboard", "--logdir", args.project, "--port", "6006", "--bind_all"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        time.sleep(1.5)
+        tb_proc = start_tensorboard(args.project)
 
     try:
         run_ultralytics(args, data_yaml)
     finally:
-        if tb_proc is not None:
-            tb_proc.terminate()
+        stop_process(tb_proc)
 
 
 if __name__ == "__main__":

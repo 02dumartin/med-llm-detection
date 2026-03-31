@@ -1,0 +1,1 @@
+"""YOLO-adjacent overlay helpers."""

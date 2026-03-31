@@ -35,13 +35,13 @@ echo "[tmux_log] $TMUX_LOG"
 VENV_PY="$BASE/.venv/bin/python"
 
 DDR4_PY="$BASE/scripts/ddr_yolo12.py"
-DDR1_PY="$BASE/scripts/ddr_yolo12_1cls.py"
+DDR1_PY="$BASE/scripts/ddr_yolo12.py"
 MERGE4_PY="$BASE/scripts/merge_yolo12.py"
-MERGE1_PY="$BASE/scripts/merge_yolo12_1cls.py"
+MERGE1_PY="$BASE/scripts/merge_yolo12.py"
 EOPTHA4_PY="$BASE/scripts/eophtha_yolo12.py"
-EOPTHA1_PY="$BASE/scripts/eophtha_yolo12_1cls.py"
-EVAL_PY="$BASE/src/eval/yolo_eval.py"
-OVERLAY_PY="$BASE/src/eval/yolo_overlay.py"
+EOPTHA1_PY="$BASE/scripts/eophtha_yolo12.py"
+EVAL_PY="$BASE/src/yolo/eval.py"
+OVERLAY_PY="$BASE/src/yolo/overlay.py"
 
 # ── GPU 설정 ────────────────────────────────────────────────
 GPU_DDR=5             # DDR train 비활성화
@@ -145,8 +145,8 @@ if ! $SKIP_TRAIN; then
     # ── Round 1: DDR 4cls (GPU $GPU_DDR)  +  DDR 1cls (GPU $GPU_FGART) ──
     # log "학습 Round 1: DDR 4cls (GPU $GPU_DDR)  +  DDR 1cls (GPU $GPU_FGART)"
     #
-    # train_bg "DDR_4cls" "$DDR4_PY" --device $GPU_DDR; PID_D4=$LAST_BG_PID
-    # train_bg "DDR_1cls" "$DDR1_PY" --device "$GPU_FGART"; PID_D1=$LAST_BG_PID
+    # train_bg "DDR_4cls" "$DDR4_PY" --variant 4cls --device $GPU_DDR; PID_D4=$LAST_BG_PID
+    # train_bg "DDR_1cls" "$DDR1_PY" --variant 1cls --device "$GPU_FGART"; PID_D1=$LAST_BG_PID
     #
     # wait_pids "DDR 4cls 학습" $PID_D4 "DDR_4cls" "DDR 1cls 학습" $PID_D1 "DDR_1cls"
     log "학습 Round 1: DDR 4cls + DDR 1cls [SKIP: commented out]"
@@ -154,7 +154,7 @@ if ! $SKIP_TRAIN; then
     # ── Round 2: Merge 4cls (GPU 0)  →  Merge 1cls (GPU 0) ──
     # log "학습 Round 2: Merge 4cls (GPU 0)  →  Merge 1cls (GPU 0) [SKIP: commented out]"
     #
-    # train_bg "Merge_4cls" "$MERGE4_PY" --device "0"; PID_M4=$LAST_BG_PID
+    # train_bg "Merge_4cls" "$MERGE4_PY" --variant 4cls --device "0"; PID_M4=$LAST_BG_PID
     # if wait "$PID_M4"; then
     #     echo "[완료] Merge 4cls 학습" >&2
     # else
@@ -162,7 +162,7 @@ if ! $SKIP_TRAIN; then
     #     exit 1
     # fi
     #
-    # train_bg "Merge_1cls" "$MERGE1_PY" --device "0"; PID_M1=$LAST_BG_PID
+    # train_bg "Merge_1cls" "$MERGE1_PY" --variant 1cls --device "0"; PID_M1=$LAST_BG_PID
     # if wait "$PID_M1"; then
     #     echo "[완료] Merge 1cls 학습" >&2
     # else
@@ -174,8 +174,8 @@ if ! $SKIP_TRAIN; then
     # ── Round 3: Eophtha 4cls (GPU $GPU_EOPTHA_4CLS)  +  Eophtha 1cls (GPU $GPU_EOPTHA_1CLS) ──
     log "학습 Round 3: Eophtha 4cls (GPU $GPU_EOPTHA_4CLS)  +  Eophtha 1cls (GPU $GPU_EOPTHA_1CLS)"
 
-    train_bg "Eophtha_4cls" "$EOPTHA4_PY" --device "$GPU_EOPTHA_4CLS"; PID_E4=$LAST_BG_PID
-    train_bg "Eophtha_1cls" "$EOPTHA1_PY" --device "$GPU_EOPTHA_1CLS"; PID_E1=$LAST_BG_PID
+    train_bg "Eophtha_4cls" "$EOPTHA4_PY" --variant 2cls --device "$GPU_EOPTHA_4CLS"; PID_E4=$LAST_BG_PID
+    train_bg "Eophtha_1cls" "$EOPTHA1_PY" --variant 1cls --device "$GPU_EOPTHA_1CLS"; PID_E1=$LAST_BG_PID
 
     wait_pids "Eophtha 4cls 학습" $PID_E4 "Eophtha_4cls" "Eophtha 1cls 학습" $PID_E1 "Eophtha_1cls"
 

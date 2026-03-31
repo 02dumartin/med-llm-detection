@@ -19,7 +19,7 @@ PROJECT_ROOT = Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-detection"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.eval.common import (  # noqa: E402
+from src.yolo.common import (  # noqa: E402
     DATASET_ALIASES,
     DATASETS,
     canonical_dataset_name,
@@ -40,9 +40,9 @@ from src.visualization.fgart_overlay import draw_fgart_overlay  # noqa: E402
 
 def find_ddr_xml_by_stem(stem: str) -> Path | None:
     for split in ["train", "valid", "test"]:
-        p = DDR_ANN_ROOT / split / f"{stem}.xml"
-        if p.exists():
-            return p
+        path = DDR_ANN_ROOT / split / f"{stem}.xml"
+        if path.exists():
+            return path
     return None
 
 
@@ -53,18 +53,18 @@ def save_gt_overlays(test_images_dir: Path, out_dir: Path, overlay_type: str | N
 
     out_dir.mkdir(parents=True, exist_ok=True)
     imgs = sorted([p for p in test_images_dir.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg"}])
-    for p in imgs:
+    for path in imgs:
         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
         if overlay_type == "fgart":
-            draw_fgart_overlay(ax, p.name, legend=False)
-            out_path = out_dir / p.name
+            draw_fgart_overlay(ax, path.name, legend=False)
+            out_path = out_dir / path.name
         elif overlay_type == "ddr":
-            xml_path = find_ddr_xml_by_stem(p.stem)
+            xml_path = find_ddr_xml_by_stem(path.stem)
             if xml_path is None:
                 plt.close(fig)
                 continue
             draw_ddr_overlay(ax, xml_path, legend=False)
-            out_path = out_dir / f"{p.stem}.png"
+            out_path = out_dir / f"{path.stem}.png"
         else:
             plt.close(fig)
             continue
@@ -148,12 +148,8 @@ def detections_from_result(result, num_classes: int) -> tuple[sv.Detections, lis
     conf = boxes.conf.cpu().numpy().astype(np.float32)
     raw_cls = boxes.cls.cpu().numpy().astype(np.int32)
     vis_cls = np.clip(raw_cls, 0, max(0, num_classes - 1))
-    labels = [f"{int(c)} {float(s):.2f}" for c, s in zip(raw_cls, conf)]
-    detections = sv.Detections(
-        xyxy=xyxy,
-        confidence=conf,
-        class_id=vis_cls,
-    )
+    labels = [f"{int(cls_id)} {float(score):.2f}" for cls_id, score in zip(raw_cls, conf)]
+    detections = sv.Detections(xyxy=xyxy, confidence=conf, class_id=vis_cls)
     return detections, labels
 
 
@@ -165,12 +161,7 @@ def render_overlay(
 ) -> np.ndarray:
     palette = sv.ColorPalette.from_hex(class_colors)
     box_annotator = sv.BoxAnnotator(color=palette, thickness=2)
-    label_annotator = sv.LabelAnnotator(color=palette)
-
-    annotated = box_annotator.annotate(scene=image_bgr.copy(), detections=detections)
-    if labels:
-        annotated = label_annotator.annotate(scene=annotated, detections=detections, labels=labels)
-    return annotated
+    return box_annotator.annotate(scene=image_bgr.copy(), detections=detections)
 
 
 def save_pred_overlays_from_txt(
@@ -182,16 +173,16 @@ def save_pred_overlays_from_txt(
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     imgs = sorted([p for p in test_images_dir.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg"}])
-    for p in imgs:
-        image = cv2.imread(str(p))
+    for path in imgs:
+        image = cv2.imread(str(path))
         if image is None:
             continue
         h, w = image.shape[:2]
-        detections, labels = detections_from_txt(pred_labels_dir / f"{p.stem}.txt", w, h, len(class_names))
+        detections, labels = detections_from_txt(pred_labels_dir / f"{path.stem}.txt", w, h, len(class_names))
         if labels:
             labels = [f"{class_names[detections.class_id[i]]} {detections.confidence[i]:.2f}" for i in range(len(labels))]
         rendered = render_overlay(image, detections, labels, class_colors)
-        cv2.imwrite(str(out_dir / p.name), rendered)
+        cv2.imwrite(str(out_dir / path.name), rendered)
 
 
 def save_pred_overlays_live(
@@ -214,15 +205,15 @@ def save_pred_overlays_live(
         verbose=False,
     )
     for result in results:
-        p = Path(result.path)
-        image = cv2.imread(str(p))
+        path = Path(result.path)
+        image = cv2.imread(str(path))
         if image is None:
             continue
         detections, labels = detections_from_result(result, len(class_names))
         if labels:
             labels = [f"{class_names[detections.class_id[i]]} {detections.confidence[i]:.2f}" for i in range(len(labels))]
         rendered = render_overlay(image, detections, labels, class_colors)
-        cv2.imwrite(str(out_dir / p.name), rendered)
+        cv2.imwrite(str(out_dir / path.name), rendered)
 
 
 def main() -> None:

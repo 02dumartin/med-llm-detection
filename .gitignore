@@ -70,3 +70,6 @@ data/
 # Result
 results/
 reports/
+
+# Module
+nnDetection/
