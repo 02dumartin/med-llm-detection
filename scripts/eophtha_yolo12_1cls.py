@@ -31,6 +31,13 @@ NAMES = ["lesion"]
 VAL_FOLDER = "val"
 
 
+def normalize_device(device: str) -> str:
+    s = device.strip()
+    if "," not in s:
+        return s
+    return ",".join(p.strip() for p in s.split(",") if p.strip())
+
+
 def write_data_yaml(out_path: Path, data_root: Path, names: list[str], val_folder: str) -> None:
     out_path.write_text(
         "\n".join(
@@ -145,7 +152,7 @@ def run_ultralytics(args: argparse.Namespace, data_yaml: Path) -> None:
         imgsz=args.imgsz,
         epochs=args.epochs,
         batch=args.batch,
-        device=args.device,
+        device=normalize_device(args.device),
         workers=args.workers,
         project=args.project,
         name=args.name,
@@ -236,7 +243,12 @@ def main() -> None:
     parser.add_argument("--imgsz", type=int, default=1536)
     parser.add_argument("--epochs", type=int, default=300)
     parser.add_argument("--batch", type=int, default=2)
-    parser.add_argument("--device", type=str, default="0")
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="0",
+        help="CUDA 장치. 단일: 0 | DDP 다중 GPU: 0,1,2",
+    )
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--project", type=str, default=str(PROJECT_ROOT / "runs" / "eophtha"))
     parser.add_argument("--name", type=str, default=None, help="default: yolo12_1cls")

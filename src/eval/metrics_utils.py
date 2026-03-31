@@ -9,41 +9,56 @@ import pandas as pd
 
 def compute_per_class_prf_ap(metrics, cm: np.ndarray, class_names: list[str]) -> pd.DataFrame:
     """
-    Confusion matrix + metrics에서 클래스별 precision, recall, f1, AP50, AP50-95 계산.
+    Ultralytics metrics에서 클래스별 precision, recall, f1, AP50, AP50-95 계산.
     cm: rows=GT, cols=pred (마지막 col=background/FN)
     """
     nc = len(class_names)
-    ap50 = np.array(metrics.box.ap50) if hasattr(metrics.box, "ap50") else np.zeros(nc)
-    ap = np.array(metrics.box.ap) if hasattr(metrics.box, "ap") else np.zeros(nc)
+    box = metrics.box
+
+    # Ultralytics returns per-class arrays aligned to ap_class_index, not always 0..nc-1.
+    ap_class_index = np.array(getattr(box, "ap_class_index", []), dtype=int)
+    p_raw = np.array(getattr(box, "p", []), dtype=float)
+    r_raw = np.array(getattr(box, "r", []), dtype=float)
+    f1_raw = np.array(getattr(box, "f1", []), dtype=float)
+    ap50_raw = np.array(getattr(box, "ap50", []), dtype=float)
+    ap_raw = np.array(getattr(box, "ap", []), dtype=float)
+
+    p = np.zeros(nc, dtype=float)
+    r = np.zeros(nc, dtype=float)
+    f1 = np.zeros(nc, dtype=float)
+    ap50 = np.zeros(nc, dtype=float)
+    ap = np.zeros(nc, dtype=float)
+
+    for src_idx, cls_idx in enumerate(ap_class_index):
+        if 0 <= cls_idx < nc:
+            if src_idx < len(p_raw):
+                p[cls_idx] = p_raw[src_idx]
+            if src_idx < len(r_raw):
+                r[cls_idx] = r_raw[src_idx]
+            if src_idx < len(f1_raw):
+                f1[cls_idx] = f1_raw[src_idx]
+            if src_idx < len(ap50_raw):
+                ap50[cls_idx] = ap50_raw[src_idx]
+            if src_idx < len(ap_raw):
+                ap[cls_idx] = ap_raw[src_idx]
 
     rows = []
     for i, name in enumerate(class_names):
-        tp = cm[i, i]
-        total_gt = cm[i, :].sum()
-        total_pred_as_i = cm[:, i].sum()
-
-        precision = tp / total_pred_as_i if total_pred_as_i > 0 else 0.0
-        recall = tp / total_gt if total_gt > 0 else 0.0
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-
         rows.append(
             {
                 "class": name,
-                "precision": round(precision, 6),
-                "recall": round(recall, 6),
-                "f1": round(f1, 6),
-                "AP@0.5": float(ap50[i]) if i < len(ap50) else 0.0,
-                "AP@0.5:0.95": float(ap[i]) if i < len(ap) else 0.0,
+                "precision": round(float(p[i]), 6),
+                "recall": round(float(r[i]), 6),
+                "f1": round(float(f1[i]), 6),
+                "AP@0.5": float(ap50[i]),
+                "AP@0.5:0.95": float(ap[i]),
             }
         )
 
-    # overall (mean)
-    tp_total = cm[:nc, :nc].diagonal().sum()
-    total_gt_all = cm[:nc, :].sum()
-    total_pred_all = cm[:nc, :nc].sum()
-    p_mean = tp_total / total_pred_all if total_pred_all > 0 else 0.0
-    r_mean = tp_total / total_gt_all if total_gt_all > 0 else 0.0
-    f1_mean = 2 * p_mean * r_mean / (p_mean + r_mean) if (p_mean + r_mean) > 0 else 0.0
+    # overall: use Ultralytics-provided macro means for P/R and macro mean of per-class F1.
+    p_mean = float(getattr(box, "mp", 0.0))
+    r_mean = float(getattr(box, "mr", 0.0))
+    f1_mean = float(f1_raw.mean()) if len(f1_raw) else 0.0
 
     rows.append(
         {
