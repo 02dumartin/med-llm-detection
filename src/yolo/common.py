@@ -9,31 +9,56 @@ DATASETS = {
     "fgart": {
         "root_4cls": PROJECT_ROOT / "data" / "FGART_yolo_4cls",
         "root_1cls": PROJECT_ROOT / "data" / "FGART_yolo_1cls",
-        "eval_split": "val",
+        "yolo_root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/FGART_yolo_4cls"),
+        "yolo_root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/FGART_yolo_1cls"),
+        "coco_root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/FGART_4scls"),
+        "coco_root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/FGART_1scls"),
+        "eval_split": "test",
+        "gt_split": "test",
         "overlay": "fgart",
     },
     "ddr": {
         "root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_yolo_4cls"),
         "root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_yolo_1cls"),
-        "eval_split": "val",
+        "yolo_root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_yolo_4cls"),
+        "yolo_root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_yolo_1cls"),
+        "coco_root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_4cls"),
+        "coco_root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DDR_crop_1cls"),
+        "eval_split": "test",
+        "gt_split": "test",
         "overlay": "ddr",
     },
     "idrid": {
         "root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_yolo_4cls"),
         "root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_yolo_1cls"),
+        "yolo_root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_yolo_4cls"),
+        "yolo_root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_yolo_1cls"),
+        "coco_root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_4cls"),
+        "coco_root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/IDRiD_1cls"),
         "eval_split": "test",
+        "gt_split": "test",
         "overlay": None,
     },
     "eophtha": {
         "root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_4cls"),
         "root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_1cls"),
-        "eval_split": "val",
+        "yolo_root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_4cls"),
+        "yolo_root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_yolo_1cls"),
+        "coco_root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_4cls"),
+        "coco_root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/Eophtha_1cls"),
+        "eval_split": "test",
+        "gt_split": "test",
         "overlay": None,
     },
     "diaretdb1": {
         "root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DIARETDB1_yolo_4cls"),
         "root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DIARETDB1_yolo_1cls"),
+        "yolo_root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DIARETDB1_yolo_4cls"),
+        "yolo_root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DIARETDB1_yolo_1cls"),
+        "coco_root_4cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DIARETDB1_4cls"),
+        "coco_root_1cls": Path("/home/jovyan/aicon-gamma-datavol-1/hjgoh/med-llm-data/DIARETDB1_1cls"),
         "eval_split": "test",
+        "gt_split": "test",
         "overlay": None,
     },
 }
@@ -75,6 +100,21 @@ def get_default_eval_split(name: str) -> str:
 def get_overlay_type(name: str) -> str | None:
     cfg = get_dataset_config(name)
     return cfg["overlay"]
+
+
+def get_gt_yolo_root(name: str, variant: str) -> Path:
+    cfg = get_dataset_config(name)
+    return cfg["yolo_root_4cls"] if variant == "4cls" else cfg["yolo_root_1cls"]
+
+
+def get_gt_coco_root(name: str, variant: str) -> Path:
+    cfg = get_dataset_config(name)
+    return cfg["coco_root_4cls"] if variant == "4cls" else cfg["coco_root_1cls"]
+
+
+def get_default_gt_split(name: str) -> str:
+    cfg = get_dataset_config(name)
+    return cfg["gt_split"]
 
 
 def class_names_for_variant(variant: str) -> list[str]:
